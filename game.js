@@ -10,7 +10,6 @@
     best: document.getElementById('best'),
     timeLeft: document.getElementById('timeLeft'),
     startBtn: document.getElementById('startBtn'),
-    changeBtn: document.getElementById('changeBtn'),
     restartBtn: document.getElementById('restartBtn'),
     endScreen: document.getElementById('endScreen'),
     finalScore: document.getElementById('finalScore'),
@@ -31,7 +30,6 @@
     { id: 'bun', top: '#F6D7A6', side: '#C6935D', accent: '#FFF1DA' }, // bread
     { id: 'meat', top: '#B86A4B', side: '#6C2F1B', accent: '#FFD0BA' }, // burger patty
     { id: 'ham', top: '#FF7BB0', side: '#C43B74', accent: '#FFE1EF' },
-    { id: 'mushroom', top: '#B9C3CC', side: '#6B7884', accent: '#F2F7FF' },
   ];
 
   const ingredientById = Object.fromEntries(INGREDIENTS.map((i) => [i.id, i]));
@@ -54,7 +52,6 @@
     bun: 'Bread',
     meat: 'Burger',
     ham: 'Ham',
-    mushroom: 'Mushroom',
   };
 
   const customerAngles = (() => {
@@ -289,49 +286,46 @@
         ctx.restore();
       }
     } else if (ingId === 'ham') {
-      // Ham slice (folded)
-      const g = ctx.createRadialGradient(-R * 0.30, -R * 0.45, R * 0.14, 0, 0, R * 1.35);
-      g.addColorStop(0, '#FFE1EF');
+      // Ham: two layered slices (stacked, slightly offset)
+      const drawHamSlice = (offX, offY, scale, edgeAlpha) => {
+        const g = ctx.createRadialGradient(-R * 0.30 + offX, -R * 0.45 + offY, R * 0.14, 0, 0, R * 1.35);
+        g.addColorStop(0, '#FFE7F2');
+        g.addColorStop(0.55, ing.top);
+        g.addColorStop(1, ing.side);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(offX, unit * 0.02 + offY, R * 1.05 * scale, R * 0.78 * scale, -0.12, 0, TAU);
+        ctx.fill();
+
+        // Fold highlight
+        ctx.strokeStyle = `rgba(255,255,255,${0.26 * edgeAlpha})`;
+        ctx.lineWidth = Math.max(2, unit * 0.035 * scale);
+        ctx.beginPath();
+        ctx.ellipse(-unit * 0.08 + offX, -unit * 0.06 + offY, R * 0.55 * scale, R * 0.36 * scale, -0.35, 0, TAU);
+        ctx.stroke();
+
+        // Fat edge
+        ctx.strokeStyle = `rgba(255,255,255,${0.34 * edgeAlpha})`;
+        ctx.lineWidth = Math.max(2, unit * 0.04 * scale);
+        ctx.beginPath();
+        ctx.ellipse(unit * 0.02 + offX, unit * 0.06 + offY, R * 0.92 * scale, R * 0.66 * scale, -0.12, 0, TAU);
+        ctx.stroke();
+      };
+
+      // Back slice
+      drawHamSlice(-unit * 0.05, unit * 0.04, 1.0, 0.95);
+      // Front slice
+      drawHamSlice(unit * 0.06, -unit * 0.02, 0.98, 1.0);
+    } else {
+      // Generic fallback: simple 2.5D ingredient blob
+      const g = ctx.createRadialGradient(-R * 0.25, -R * 0.35, R * 0.12, 0, 0, R * 1.35);
+      g.addColorStop(0, '#FFFFFF');
       g.addColorStop(0.55, ing.top);
       g.addColorStop(1, ing.side);
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.ellipse(0, unit * 0.02, R * 1.05, R * 0.78, -0.12, 0, TAU);
+      ctx.ellipse(0, unit * 0.02, R * 1.05, R * 0.80, -0.08, 0, TAU);
       ctx.fill();
-
-      // Fold highlight
-      ctx.strokeStyle = 'rgba(255,255,255,0.30)';
-      ctx.lineWidth = Math.max(2, unit * 0.035);
-      ctx.beginPath();
-      ctx.ellipse(-unit * 0.08, -unit * 0.06, R * 0.55, R * 0.36, -0.35, 0, TAU);
-      ctx.stroke();
-
-      // Fat edge
-      ctx.strokeStyle = 'rgba(255,255,255,0.38)';
-      ctx.lineWidth = Math.max(2, unit * 0.04);
-      ctx.beginPath();
-      ctx.ellipse(unit * 0.02, unit * 0.06, R * 0.92, R * 0.66, -0.12, 0, TAU);
-      ctx.stroke();
-    } else {
-      // Mushroom (kept simple but less pill-like)
-      const capG = ctx.createRadialGradient(-R * 0.20, -R * 0.45, R * 0.10, 0, 0, R * 1.25);
-      capG.addColorStop(0, '#FFFFFF');
-      capG.addColorStop(0.55, ing.top);
-      capG.addColorStop(1, ing.side);
-      ctx.fillStyle = capG;
-      ctx.beginPath();
-      ctx.ellipse(0, -unit * 0.08, R * 1.05, R * 0.78, 0, Math.PI, TAU);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = ing.side;
-      ctx.beginPath();
-      ctx.ellipse(0, unit * 0.16, R * 0.55, R * 0.48, 0, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = Math.max(2, unit * 0.03);
-      ctx.beginPath();
-      ctx.ellipse(0, -unit * 0.06, R * 1.05, R * 0.78, 0, Math.PI, TAU);
-      ctx.stroke();
     }
 
     ctx.restore();
@@ -380,28 +374,21 @@
     drawRoundedRect(-r, -r, r * 2, r * 2, r * 0.40);
     ctx.stroke();
 
-    // Order icons above
+    // Order icons: side-by-side, below the customer face
     const next = cust.order[cust.progressIndex];
     const remaining = cust.order.slice(cust.progressIndex, cust.progressIndex + 3);
     const iconCount = remaining.length;
-    // Stacked/overlapped (readable on mobile)
-    const iconPx = r * 1.42; // bigger than face
+
+    const iconPx = r * 1.05; // readable, bigger than face
     const iconScale = iconPx / 46;
-    const lift = r * 1.25;
-    const step = iconPx * 0.60; // overlap
+    const yRow = r * 0.92; // below face
+    const iconSpacing = r * 0.22; // slightly closer
 
-    // Prevent top-edge clipping (especially for the top customer)
-    const topOfStack = y + (bob + pulse) + (-lift - (iconCount - 1) * step) - iconPx * 0.70;
-    const marginTop = 10;
-    const shiftDown = topOfStack < marginTop ? marginTop - topOfStack : 0;
-
-    // Draw back-to-front so overlap looks good.
-    for (let i = iconCount - 1; i >= 0; i--) {
+    for (let i = 0; i < iconCount; i++) {
       const ingId = remaining[i];
       const isNext = ingId === next && i === 0;
-      const wobbleX = (i - (iconCount - 1) / 2) * (iconPx * 0.08);
-      const yStack = -lift - i * step + shiftDown;
-      drawIngredient(ingId, wobbleX, yStack, iconScale * (isNext ? 1.05 : 1.0), {
+      const xRow = (i - (iconCount - 1) / 2) * iconSpacing;
+      drawIngredient(ingId, xRow, yRow, iconScale * (isNext ? 1.08 : 1.0), {
         time: t,
         rotate: isNext ? Math.sin(t * 6 + cust.phase) * 0.06 : 0,
         bob: isNext,
@@ -409,9 +396,9 @@
 
       if (isNext) {
         ctx.strokeStyle = 'rgba(255,255,255,0.70)';
-        ctx.lineWidth = Math.max(3, r * 0.07);
+        ctx.lineWidth = Math.max(3, r * 0.06);
         ctx.beginPath();
-        ctx.arc(wobbleX, yStack, iconPx * 0.62, 0, TAU);
+        ctx.arc(xRow, yRow, iconPx * 0.56, 0, TAU);
         ctx.stroke();
       }
     }
@@ -581,7 +568,7 @@
     board.size = cssSize;
     board.cx = cssSize / 2;
     board.cy = cssSize / 2;
-    board.rCustomers = cssSize * 0.42;
+    board.rCustomers = cssSize * 0.42 * 0.9; // 10% closer to center
     board.rCenter = cssSize * 0.14;
     board.projectileRadius = cssSize * 0.08;
     board.swipeThreshold = cssSize * SWIPE.minDistanceRatio;
@@ -778,6 +765,8 @@
         cust.leaveTimer = 0.65;
         game.score += 18 + Math.min(12, cust.order.length * 2);
         game.streak += 1;
+        // Bonus time for completing full order
+        game.endMs += 15000;
       }
     } else {
       // Miss: streak breaks
@@ -973,8 +962,37 @@
     if (!game.swipeStart) return;
     if (e.pointerId !== game.swipeStart.id) return;
 
+    const startX = game.swipeStart.x;
+    const startY = game.swipeStart.y;
+
     // Use pointerup as authoritative endpoint for direction accuracy.
     const { x, y } = pointerToCanvas(e);
+
+    const dx = x - startX;
+    const dy = y - startY;
+    const dist = Math.hypot(dx, dy);
+
+    // Tap behavior: if tapping the centered ingredient, reroll it (instead of treating it as a swipe).
+    if (dist < board.swipeThreshold) {
+      const t = nowMs();
+      const startDistFromCenter = Math.hypot(startX - board.cx, startY - board.cy);
+      const endDistFromCenter = Math.hypot(x - board.cx, y - board.cy);
+      const inCenter = startDistFromCenter <= board.rCenter * 1.25 && endDistFromCenter <= board.rCenter * 1.25;
+
+      if (inCenter && t >= game.changeCooldownUntil) {
+        if (rerollIngredient()) game.changeCooldownUntil = t + 700;
+      } else {
+        showTouchToast(700);
+      }
+
+      game.swipeStart = null;
+      game.swipeCurrent = null;
+      game.swipeLock = true;
+      setTimeout(() => {
+        game.swipeLock = false;
+      }, 35);
+      return;
+    }
 
     // Determine direction and attempt.
     attemptSwipe(x, y);
@@ -993,15 +1011,6 @@
   function bindUI() {
     ui.startBtn.addEventListener('click', startGame);
     ui.restartBtn.addEventListener('click', startGame);
-    ui.changeBtn.addEventListener('click', () => {
-      if (!game.running) return;
-      const t = nowMs();
-      if (t < game.changeCooldownUntil) return;
-      if (!game.activeIngredient) return;
-      if (rerollIngredient()) {
-        game.changeCooldownUntil = t + 700;
-      }
-    });
 
     window.addEventListener('resize', () => {
       resize();
