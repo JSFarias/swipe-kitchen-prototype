@@ -46,15 +46,18 @@
   };
 
   const SLINGSHOT = {
-    // Projectile duration (ms): weak pull → strong pull
-    deliverDurationMin: 115,
-    deliverDurationMax: 300,
-    failDurationMin: 95,
-    failDurationMax: 220,
-    // Stretch normalization: beyond this pull distance counts as full power
     stretchMaxRatio: 0.42,
-    overshootAlongRay: 0.14, // extra distance toward customer at full stretch
+    speedMin: 520,
+    speedMax: 1180,
+    upwardBias: 380,
   };
+
+  const PHYSICS = {
+    gravity: 2400,
+    maxFlightSec: 4,
+  };
+
+  const NUM_CUSTOMER_SLOTS = 3;
 
   const INGREDIENT_LABELS = {
     tomato: 'Tomato',
@@ -66,25 +69,42 @@
     ham: 'Ham',
   };
 
-  const customerAngles = (() => {
-    // 0..7 starting from Up (-90deg), clockwise with 45deg step.
-    const up = -Math.PI / 2; // normalized to atan2 range
-    return Array.from({ length: 8 }, (_, i) => up + i * (Math.PI / 4));
-  })();
-
-  function dirIndexFromVector(dx, dy) {
-    // Angle routing from swipe start->end.
-    // Convert to a math-like frame (y up) so top-right is +45deg.
-    const angle = Math.atan2(-dy, dx); // -PI..PI
-    const fromUpClockwise = (Math.PI / 2 - angle + TAU) % TAU;
-    const sector = TAU / 8;
-    return Math.floor((fromUpClockwise + sector / 2) / sector) % 8; // 0..7
+  window.gameAudio = window.gameAudio || {};
+  if (typeof window.gameAudio.play !== 'function') {
+    window.gameAudio.play = () => {};
   }
 
   function makeOrder(len) {
     const a = [];
     for (let i = 0; i < len; i++) a.push(randomIngredient());
     return a;
+  }
+
+  function ordersEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function generateOrder(len, slotIndex) {
+    const peers = game.customers
+      .filter((c, i) => i !== slotIndex && c.active && c.order && c.order.length)
+      .map((c) => c.order);
+    for (let attempt = 0; attempt < 45; attempt++) {
+      const cand = makeOrder(len);
+      if (!peers.some((po) => ordersEqual(po, cand))) return cand;
+    }
+    const cand = makeOrder(len);
+    const firsts = new Set(peers.map((po) => po[0]));
+    if (firsts.size && firsts.has(cand[0])) {
+      const alt = INGREDIENTS.find((ing) => !firsts.has(ing.id));
+      if (alt) cand[0] = alt.id;
+    }
+    return cand;
+  }
+
+  function orderLenForLevel(level) {
+    return clamp(ORDER_LEN_BASE + (level - 1) * ORDER_LEN_EXTRA_PER_LEVEL, ORDER_LEN_BASE, ORDER_LEN_BASE + ORDER_LEN_EXTRA_PER_LEVEL * MAX_LEVEL);
   }
 
   function formatScore(n) {
@@ -363,13 +383,12 @@
 
   function drawCustomer(cust, x, y, r, t, pulse = 0) {
     const face = cust.face; // 0..2
-    const prog = cust.progressIndex;
 
     ctx.save();
     ctx.translate(x, y);
 
     // Body: 2.5D bubble
-    const bob = Math.sin(t * 1.6 + cust.phase) * r * 0.03;
+    const bob = Math.sin(t * 1.6 + cust.animPhase) * r * 0.03;
     ctx.translate(0, bob + pulse);
 
     const sideX = r * 0.10;
@@ -404,47 +423,38 @@
     drawRoundedRect(-r, -r, r * 2, r * 2, r * 0.40);
     ctx.stroke();
 
-    // Order icons: side-by-side, below the customer face
-    const next = cust.order[cust.progressIndex];
-    const remaining = cust.order.slice(cust.progressIndex, cust.progressIndex + 3);
-    const iconCount = remaining.length;
-
-    const iconPx = r * 1.05; // readable, bigger than face
-    const iconScale = iconPx / 46;
-    const yRow = r * 0.92; // below face
-    const iconSpacing = r * 0.34; // spread farther apart
-
-    // Draw queued ingredients first.
-    for (let i = 1; i < iconCount; i++) {
-      const ingId = remaining[i];
-      const isNext = false;
-      const xRow = (i - (iconCount - 1) / 2) * iconSpacing;
-      drawIngredient(ingId, xRow, yRow, iconScale * (isNext ? 1.08 : 1.0), {
+    // Current order step only (sequential reveal)
+    const pi = cust.progressIndex;
+    if (pi < cust.order.length) {
+      const ingId = cust.order[pi];
+      const iconPx = r * 1.12;
+      const iconScale = iconPx / 46;
+      const yRow = r * 0.92;
+      drawIngredient(ingId, 0, yRow, iconScale * 1.08, {
         time: t,
-        rotate: isNext ? Math.sin(t * 6 + cust.phase) * 0.06 : 0,
-        bob: isNext,
-      });
-    }
-
-    // Draw current requested ingredient last so it appears in front.
-    if (iconCount > 0) {
-      const i = 0;
-      const ingId = remaining[0];
-      const isNext = true;
-      const xRow = (i - (iconCount - 1) / 2) * iconSpacing;
-      drawIngredient(ingId, xRow, yRow, iconScale * 1.08, {
-        time: t,
-        rotate: Math.sin(t * 6 + cust.phase) * 0.06,
+        rotate: Math.sin(t * 6 + cust.animPhase) * 0.06,
         bob: true,
       });
+      ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+      ctx.lineWidth = Math.max(3, r * 0.06);
+      ctx.beginPath();
+      ctx.arc(0, yRow, iconPx * 0.58, 0, TAU);
+      ctx.stroke();
+    }
 
-      if (isNext) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.70)';
-        ctx.lineWidth = Math.max(3, r * 0.06);
+    // Face splash (wrong ingredient)
+    if (cust.stunTimer > 0) {
+      const splat = 1 - clamp(cust.stunTimer / 1.15, 0, 1);
+      ctx.globalAlpha = 0.35 + splat * 0.35;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + cust.animPhase;
+        const rr = r * (0.25 + (i % 3) * 0.08);
+        ctx.fillStyle = i % 2 ? 'rgba(255,200,120,0.7)' : 'rgba(255,80,120,0.55)';
         ctx.beginPath();
-        ctx.arc(xRow, yRow, iconPx * 0.56, 0, TAU);
-        ctx.stroke();
+        ctx.arc(Math.cos(a) * r * 0.35, Math.sin(a) * r * 0.25 - r * 0.05, rr, 0, TAU);
+        ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
 
     // Face
@@ -496,106 +506,134 @@
   }
 
   function drawBackground(board, t) {
-    const { cx, cy, size } = board;
+    const { w, h, yTop0, yCounter0, yBottom0, yBottom1 } = board;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Convert to device pixels already handled by scaling in resize().
-    // Draw platform
-    const outerR = size * 0.46;
-    const ringR = outerR * 0.86;
-    const innerR = outerR * 0.22;
+    const topH = yCounter0 - yTop0;
+    const gTop = ctx.createLinearGradient(0, yTop0, 0, yCounter0);
+    gTop.addColorStop(0, 'rgba(120,140,200,0.14)');
+    gTop.addColorStop(1, 'rgba(40,55,95,0.10)');
+    ctx.fillStyle = gTop;
+    ctx.fillRect(0, yTop0, w, topH);
 
-    // Outer glow
-    const glow = ctx.createRadialGradient(cx, cy, innerR * 0.6, cx, cy, outerR * 1.12);
-    glow.addColorStop(0, 'rgba(255,160,210,0.12)');
-    glow.addColorStop(0.55, 'rgba(86,225,255,0.08)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
+    const counterH = yBottom0 - yCounter0;
+    const gMid = ctx.createLinearGradient(0, yCounter0, 0, yBottom0);
+    gMid.addColorStop(0, 'rgba(95,72,52,0.55)');
+    gMid.addColorStop(0.5, 'rgba(140,100,70,0.45)');
+    gMid.addColorStop(1, 'rgba(60,44,32,0.50)');
+    ctx.fillStyle = gMid;
+    ctx.fillRect(0, yCounter0, w, counterH);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = Math.max(2, h * 0.006);
     ctx.beginPath();
-    ctx.arc(cx, cy, outerR * 1.12, 0, TAU);
-    ctx.fill();
+    ctx.moveTo(0, yCounter0 + counterH * 0.5);
+    ctx.lineTo(w, yCounter0 + counterH * 0.5);
+    ctx.stroke();
 
-    // Ring
-    const ringG = ctx.createRadialGradient(cx, cy, ringR * 0.55, cx, cy, ringR * 1.05);
-    ringG.addColorStop(0, 'rgba(255,255,255,0.07)');
-    ringG.addColorStop(1, 'rgba(255,255,255,0.01)');
-    ctx.fillStyle = ringG;
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringR * 1.03, 0, TAU);
-    ctx.arc(cx, cy, ringR * 0.73, 0, TAU, true);
-    ctx.closePath();
-    ctx.fill();
+    const gBot = ctx.createLinearGradient(0, yBottom0, 0, yBottom1);
+    gBot.addColorStop(0, 'rgba(35,42,70,0.35)');
+    gBot.addColorStop(1, 'rgba(18,22,40,0.55)');
+    ctx.fillStyle = gBot;
+    ctx.fillRect(0, yBottom0, w, yBottom1 - yBottom0);
 
-    // Center pad
-    const padG = ctx.createRadialGradient(cx, cy, 0, cx, cy, innerR * 1.15);
-    padG.addColorStop(0, 'rgba(255,255,255,0.10)');
-    padG.addColorStop(1, 'rgba(255,255,255,0.02)');
-    ctx.fillStyle = padG;
-    ctx.beginPath();
-    ctx.arc(cx, cy, innerR * 1.08, 0, TAU);
-    ctx.fill();
-
-    // Direction hints (subtle)
-    ctx.globalAlpha = 0.28;
-    for (let i = 0; i < 8; i++) {
-      const a = customerAngles[i];
-      const x0 = cx + Math.cos(a) * ringR * 0.62;
-      const y0 = cy + Math.sin(a) * ringR * 0.62;
-      const x1 = cx + Math.cos(a) * ringR * 0.92;
-      const y1 = cy + Math.sin(a) * ringR * 0.92;
-      ctx.strokeStyle = `rgba(120,220,255,${0.3 - i * 0.02})`;
-      ctx.lineWidth = Math.max(2, size * 0.0025);
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(0, yBottom0, w, h * 0.02);
   }
 
-  function makeCustomer(index) {
-    const palettes = [
-      ['#FF6A88', '#FF2E5E'],
-      ['#6A7DFF', '#3E4BFF'],
-      ['#3EF0A0', '#18C979'],
-      ['#FFD35C', '#FFB703'],
-      ['#7B6BFF', '#4D2CFF'],
-      ['#2EE6D0', '#0BAE96'],
-      ['#FF9A4A', '#FF5B2E'],
-      ['#9B6BFF', '#6E3CFF'],
-    ];
-    const p = palettes[index % palettes.length];
+  function drawTrashCan(board) {
+    const r = board.trashRect;
+    ctx.save();
+    const rr = Math.min(14, r.w * 0.2);
+    ctx.fillStyle = 'rgba(45,50,65,0.85)';
+    drawRoundedRect(r.x, r.y, r.w, r.h, rr);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = Math.max(2, r.w * 0.06);
+    drawRoundedRect(r.x, r.y, r.w, r.h, rr);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = Math.max(2, r.w * 0.08);
+    const lidY = r.y + r.h * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(r.x + r.w * 0.12, lidY);
+    ctx.lineTo(r.x + r.w * 0.88, lidY);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = `${Math.max(11, Math.floor(r.h * 0.28))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Trash', r.x + r.w * 0.5, r.y + r.h * 0.62);
+    ctx.restore();
+  }
+
+  const CUSTOMER_PALETTES = [
+    ['#FF6A88', '#FF2E5E'],
+    ['#6A7DFF', '#3E4BFF'],
+    ['#3EF0A0', '#18C979'],
+    ['#FFD35C', '#FFB703'],
+    ['#7B6BFF', '#4D2CFF'],
+    ['#2EE6D0', '#0BAE96'],
+  ];
+
+  function createCustomerSlot(slotIndex) {
+    const p = CUSTOMER_PALETTES[slotIndex % CUSTOMER_PALETTES.length];
     return {
-      index,
+      slotIndex,
+      active: false,
+      phase: 'idle',
+      x: 0,
+      order: [],
+      progressIndex: 0,
+      face: 0,
+      faceTimer: 0,
+      stunTimer: 0,
+      leaveTimer: 0,
       baseColor0: p[0],
       baseColor1: p[1],
-      order: makeOrder(ORDER_LEN_BASE),
-      progressIndex: 0,
-      face: 0, // 0 neutral, 1 angry, 2 happy
-      faceTimer: 0,
-      leaving: false,
-      leaveTimer: 0,
-      phase: Math.random() * 1000,
+      animPhase: Math.random() * 1000,
     };
   }
 
-  function makeProjectile(kind, ingId, fromX, fromY, toX, toY, durationMs) {
+  function makeBallistic(ingId, x, y, vx, vy) {
     return {
-      kind, // 'deliver' | 'fail'
       ingId,
-      fromX,
-      fromY,
-      toX,
-      toY,
-      durationMs,
-      startMs: performance.now(),
-      done: false,
+      x,
+      y,
+      vx,
+      vy,
+      lastY: y,
+      startMs: nowMs(),
+      dead: false,
       wobble: Math.random() * TAU,
     };
   }
 
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
+  function pointInTrash(px, py) {
+    const r = board.trashRect;
+    return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+
+  function spawnParticleBurst(x, y, kind, color, count = 10) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * TAU;
+      const sp = (0.35 + Math.random() * 0.85) * (kind === 'poof' ? 120 : 180);
+      game.particles.push({
+        x,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - (kind === 'poof' ? 40 : 20),
+        life: 1,
+        maxLife: 0.35 + Math.random() * 0.35,
+        kind,
+        color: color || 'rgba(255,255,255,0.7)',
+        size: 3 + Math.random() * 5,
+      });
+    }
+  }
+
+  function spawnSplatParticles(x, y, color) {
+    spawnParticleBurst(x, y, 'splat', color, 14);
   }
 
   function nowMs() {
@@ -604,30 +642,74 @@
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    const cssSize = Math.min(rect.width, rect.height);
+    const cssW = Math.max(1, rect.width);
+    const cssH = Math.max(1, rect.height);
     const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-    canvas.width = Math.floor(cssSize * dpr);
-    canvas.height = Math.floor(cssSize * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
-    board.size = cssSize;
-    board.cx = cssSize / 2;
-    board.cy = cssSize / 2;
-    board.rCustomers = cssSize * 0.42 * 0.9; // 10% closer to center
-    board.rCenter = cssSize * 0.14;
-    board.projectileRadius = cssSize * 0.08;
-    board.tapMaxDistance = cssSize * SWIPE.tapMaxMoveRatio;
-    board.centerStartMax = cssSize * SWIPE.maxCenterStartRatio;
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = cssW;
+    const h = cssH;
+    board.w = w;
+    board.h = h;
+    board.cx = w / 2;
+    board.size = Math.min(w, h);
+
+    const topH = h * 0.42;
+    const counterH = h * 0.08;
+    const bottomH = h * 0.5;
+    board.yTop0 = 0;
+    board.yCounter0 = topH;
+    board.yBottom0 = topH + counterH;
+    board.yBottom1 = h;
+
+    board.pivotX = w * 0.5;
+    board.yPivot = board.yBottom0 + bottomH * 0.72;
+
+    const margin = w * 0.07;
+    const usableW = w - margin * 2;
+    board.slotX = [margin + usableW * 0.2, w * 0.5, margin + usableW * 0.8];
+    board.slotY = board.yTop0 + topH * 0.58;
+
+    const tw = w * 0.2;
+    const th = bottomH * 0.24;
+    board.trashRect = {
+      x: w - tw - Math.max(10, w * 0.03),
+      y: h - th - Math.max(10, h * 0.04),
+      w: tw,
+      h: th,
+    };
+
+    board.customerDrawR = Math.min(w, h) * 0.072;
+    board.customerHitR = board.customerDrawR * 1.35;
+    board.pickupRadius = Math.min(w, h) * 0.085;
+    board.projectileRadius = Math.min(w, h) * 0.065;
+    board.floorY = h * 0.91;
+    board.tapMaxDistance = Math.min(w, h) * SWIPE.tapMaxMoveRatio;
+    board.centerStartMax = Math.min(w, h) * SWIPE.maxCenterStartRatio;
   }
 
   const board = {
+    w: 0,
+    h: 0,
     size: 0,
     cx: 0,
-    cy: 0,
-    rCustomers: 0,
-    rCenter: 0,
+    yTop0: 0,
+    yCounter0: 0,
+    yBottom0: 0,
+    yBottom1: 0,
+    pivotX: 0,
+    yPivot: 0,
+    slotX: [0, 0, 0],
+    slotY: 0,
+    trashRect: { x: 0, y: 0, w: 0, h: 0 },
+    customerDrawR: 0,
+    customerHitR: 0,
+    pickupRadius: 0,
+    projectileRadius: 0,
+    floorY: 0,
     tapMaxDistance: 0,
     centerStartMax: 0,
-    projectileRadius: 0,
   };
 
   const game = {
@@ -654,6 +736,7 @@
     aimY: 0,
     changeCooldownUntil: 0,
     touchToastUntil: 0,
+    nextCustomerSpawnAt: 0,
   };
 
   function reset() {
@@ -661,7 +744,7 @@
     game.score = 0;
     game.streak = 0;
     game.level = 1;
-    game.customers = Array.from({ length: 8 }, (_, i) => makeCustomer(i));
+    game.customers = Array.from({ length: NUM_CUSTOMER_SLOTS }, (_, i) => createCustomerSlot(i));
     game.activeIngredient = null;
     game.spawnDelayMs = 0;
     game.spawnRequestedAt = 0;
@@ -677,6 +760,7 @@
     game.aimX = 0;
     game.aimY = 0;
     game.changeCooldownUntil = 0;
+    game.nextCustomerSpawnAt = 0;
     ui.score.textContent = formatScore(game.score);
     ui.streak.textContent = formatScore(game.streak);
     ui.best.textContent = formatScore(game.best);
@@ -696,9 +780,12 @@
   }
 
   function spawnIngredient() {
+    const pos = randomPickupPosition();
     game.activeIngredient = {
       id: randomIngredient(),
       spawnMs: nowMs(),
+      x: pos.x,
+      y: pos.y,
     };
   }
 
@@ -711,18 +798,46 @@
       nextId = randomIngredient();
     }
     if (nextId === currentId) return false;
-    game.activeIngredient = { id: nextId, spawnMs: nowMs() };
+    const pos = randomPickupPosition();
+    game.activeIngredient = { id: nextId, spawnMs: nowMs(), x: pos.x, y: pos.y };
     return true;
   }
 
-  function setCustomerOrder(cust) {
-    const len = clamp(ORDER_LEN_BASE + (game.level - 1) * ORDER_LEN_EXTRA_PER_LEVEL, ORDER_LEN_BASE, ORDER_LEN_BASE + ORDER_LEN_EXTRA_PER_LEVEL * MAX_LEVEL);
-    cust.order = makeOrder(len);
+  function randomPickupPosition() {
+    const padX = board.w * 0.1;
+    const padY = board.h * 0.04;
+    const top = board.yBottom0 + board.h * 0.1;
+    const bot = board.yBottom1 - padY;
+    const left = padX;
+    const right = board.w - padX;
+    for (let k = 0; k < 25; k++) {
+      const x = left + Math.random() * (right - left);
+      const y = top + Math.random() * (bot - top);
+      const tr = board.trashRect;
+      const inTrash = x >= tr.x - 8 && x <= tr.x + tr.w + 8 && y >= tr.y - 8 && y <= tr.y + tr.h + 8;
+      const dPivot = Math.hypot(x - board.pivotX, y - board.yPivot);
+      if (!inTrash && dPivot > board.pickupRadius * 2.2) return { x, y };
+    }
+    return { x: board.pivotX - board.pickupRadius * 2.4, y: top + (bot - top) * 0.35 };
+  }
+
+  function spawnCustomer(slotIndex) {
+    const cust = game.customers[slotIndex];
+    if (cust.active) return;
+    const len = orderLenForLevel(game.level);
+    cust.active = true;
+    cust.phase = 'enter';
+    cust.x = -board.w * 0.14;
+    cust.order = generateOrder(len, slotIndex);
     cust.progressIndex = 0;
     cust.face = 0;
     cust.faceTimer = 0;
-    cust.leaving = false;
+    cust.stunTimer = 0;
     cust.leaveTimer = 0;
+  }
+
+  function activeCustomerCount() {
+    return game.customers.filter((c) => c.active).length;
   }
 
   function showTouchToast(ms = 900) {
@@ -736,14 +851,7 @@
     game.running = true;
     game.startMs = nowMs();
     game.endMs = game.startMs + game.timeLimitSec * 1000;
-    setCustomerOrder(game.customers[0]);
-    setCustomerOrder(game.customers[1]);
-    setCustomerOrder(game.customers[2]);
-    setCustomerOrder(game.customers[3]);
-    setCustomerOrder(game.customers[4]);
-    setCustomerOrder(game.customers[5]);
-    setCustomerOrder(game.customers[6]);
-    setCustomerOrder(game.customers[7]);
+    game.nextCustomerSpawnAt = nowMs() + 350;
     game.spawnDelayMs = 150;
     game.spawnRequestedAt = nowMs();
     ui.centerHelp.style.opacity = '1';
@@ -772,32 +880,12 @@
     game.aimPointerId = null;
   }
 
-  function attemptSlingshotLaunch(pullX, pullY) {
-    if (!game.running) return;
-    if (!game.activeIngredient) return;
-    if (game.swipeLock) return;
-
-    const launchDx = -pullX;
-    const launchDy = -pullY;
-    if (Math.hypot(launchDx, launchDy) < 1e-6) return;
-
-    const dirIndex = dirIndexFromVector(launchDx, launchDy);
-    const cust = game.customers[dirIndex];
-    const ingId = game.activeIngredient.id;
+  function resolveCustomerProjectileHit(cust, p) {
+    const ingId = p.ingId;
     const expected = cust.order[cust.progressIndex];
     const success = ingId === expected;
-
-    const stretch = Math.hypot(pullX, pullY);
-    const stretchMin = board.tapMaxDistance;
-    const stretchMax = board.size * SLINGSHOT.stretchMaxRatio;
-    const stretchT = clamp((stretch - stretchMin) / Math.max(1e-6, stretchMax - stretchMin), 0, 1);
-    const durDeliver = lerp(SLINGSHOT.deliverDurationMax, SLINGSHOT.deliverDurationMin, stretchT);
-    const durFail = lerp(SLINGSHOT.failDurationMax, SLINGSHOT.failDurationMin, stretchT);
-
-    // Consume ingredient immediately for chaining.
-    game.activeIngredient = null;
-    game.spawnDelayMs = 110;
-    game.spawnRequestedAt = nowMs();
+    p.dead = true;
+    window.gameAudio.play(success ? 'hit_ok' : 'hit_wrong');
 
     if (success) {
       game.streak += 1;
@@ -807,18 +895,12 @@
       cust.progressIndex += 1;
       cust.face = 2;
       cust.faceTimer = 0.45;
-
-      const fromX = board.cx;
-      const fromY = board.cy;
-      const ang = customerAngles[dirIndex];
-      const reach = board.rCustomers * (1 + SLINGSHOT.overshootAlongRay * stretchT);
-      const toX = board.cx + Math.cos(ang) * reach;
-      const toY = board.cy + Math.sin(ang) * reach;
-      game.inFlight.push(makeProjectile('deliver', ingId, fromX, fromY, toX, toY, durDeliver));
+      cust.stunTimer = 0;
+      spawnParticleBurst(cust.x, board.slotY - board.customerDrawR * 0.5, 'splat', 'rgba(120,255,180,0.75)', 8);
 
       if (cust.progressIndex >= cust.order.length) {
-        cust.leaving = true;
-        cust.leaveTimer = 0.65;
+        cust.phase = 'leaving';
+        cust.leaveTimer = 0.85;
         game.score += 18 + Math.min(12, cust.order.length * 2);
         game.streak += 1;
         game.endMs += 15000;
@@ -827,17 +909,105 @@
       game.streak = 0;
       game.score = Math.max(0, game.score - 3);
       cust.face = 1;
-      cust.faceTimer = 0.40;
-
-      const fromX = board.cx;
-      const fromY = board.cy;
-      const wobble = (Math.random() - 0.5) * board.size * 0.20 * (0.6 + stretchT * 0.4);
-      const toX = fromX + wobble;
-      const toY = fromY + (Math.random() - 0.5) * board.size * 0.18 * (0.6 + stretchT * 0.4);
-      game.inFlight.push(makeProjectile('fail', ingId, fromX, fromY, toX, toY, durFail));
+      cust.faceTimer = 0.55;
+      cust.stunTimer = 1.05;
+      spawnSplatParticles(cust.x, board.slotY - board.customerDrawR * 0.35, 'rgba(255,200,120,0.85)');
     }
-
     updateHUD();
+  }
+
+  function launchFromSlingshotPull(pullX, pullY) {
+    if (!game.running) return;
+    if (!game.activeIngredient) return;
+    if (game.swipeLock) return;
+
+    const lx = -pullX;
+    const ly = -pullY;
+    const mag = Math.hypot(lx, ly);
+    if (mag < 1e-6) return;
+
+    const stretch = Math.hypot(pullX, pullY);
+    const stretchMin = board.tapMaxDistance;
+    const stretchMax = board.size * SLINGSHOT.stretchMaxRatio;
+    const stretchT = clamp((stretch - stretchMin) / Math.max(1e-6, stretchMax - stretchMin), 0, 1);
+    const speed = lerp(SLINGSHOT.speedMin, SLINGSHOT.speedMax, stretchT);
+
+    const nx = lx / mag;
+    const ny = ly / mag;
+    const vx = nx * speed;
+    const vy = ny * speed - SLINGSHOT.upwardBias * (0.35 + stretchT * 0.65);
+
+    const ingId = game.activeIngredient.id;
+    game.activeIngredient = null;
+    game.spawnDelayMs = 110;
+    game.spawnRequestedAt = nowMs();
+
+    game.inFlight.push(makeBallistic(ingId, board.pivotX, board.yPivot, vx, vy));
+    window.gameAudio.play('throw');
+  }
+
+  function updateBallistics(dtSec) {
+    const t = nowMs();
+    for (const p of game.inFlight) {
+      if (p.dead) continue;
+      if (t - p.startMs > PHYSICS.maxFlightSec * 1000) {
+        p.dead = true;
+        continue;
+      }
+
+      p.lastY = p.y;
+      p.vy += PHYSICS.gravity * dtSec;
+      p.x += p.vx * dtSec;
+      p.y += p.vy * dtSec;
+
+      if (pointInTrash(p.x, p.y)) {
+        p.dead = true;
+        spawnParticleBurst(p.x, p.y, 'poof', 'rgba(200,200,220,0.8)', 12);
+        window.gameAudio.play('trash');
+        continue;
+      }
+
+      if (p.y < board.yCounter0 - 2) {
+        let best = null;
+        let bestD = Infinity;
+        for (const cust of game.customers) {
+          if (!cust.active || cust.phase === 'leaving') continue;
+          const dx = p.x - cust.x;
+          const dy = p.y - board.slotY;
+          const d = Math.hypot(dx, dy);
+          const hitDist = board.customerHitR + board.projectileRadius;
+          if (d < hitDist && d < bestD) {
+            bestD = d;
+            best = cust;
+          }
+        }
+        if (best) resolveCustomerProjectileHit(best, p);
+        if (p.dead) continue;
+      }
+
+      if (p.y > board.floorY && p.vy > 0) {
+        p.dead = true;
+        spawnParticleBurst(p.x, p.y, 'splat', 'rgba(180,200,255,0.55)', 10);
+        window.gameAudio.play('splat');
+        continue;
+      }
+
+      if (p.x < -board.w * 0.2 || p.x > board.w * 1.2 || p.y < -board.h * 0.3) {
+        p.dead = true;
+      }
+    }
+    game.inFlight = game.inFlight.filter((p) => !p.dead);
+  }
+
+  function updateParticles(dtSec) {
+    for (const q of game.particles) {
+      q.life -= dtSec / q.maxLife;
+      q.x += q.vx * dtSec;
+      q.y += q.vy * dtSec;
+      q.vy += 420 * dtSec;
+      q.vx *= 0.985;
+    }
+    game.particles = game.particles.filter((q) => q.life > 0);
   }
 
   function update(dtSec) {
@@ -864,34 +1034,44 @@
       }
     }
 
-    // Customers animations
     for (const cust of game.customers) {
-      if (cust.faceTimer > 0) cust.faceTimer = Math.max(0, cust.faceTimer - dtSec);
-      if (cust.faceTimer === 0 && cust.face !== 0 && !cust.leaving) cust.face = 0;
+      if (!cust.active) continue;
+      if (cust.stunTimer > 0) cust.stunTimer = Math.max(0, cust.stunTimer - dtSec);
 
-      if (cust.leaving) {
+      if (cust.phase === 'enter') {
+        const tx = board.slotX[cust.slotIndex];
+        cust.x += (tx - cust.x) * Math.min(1, dtSec * 3.4);
+        if (Math.abs(tx - cust.x) < 1.5) {
+          cust.x = tx;
+          cust.phase = 'waiting';
+        }
+      }
+
+      if (cust.faceTimer > 0) cust.faceTimer = Math.max(0, cust.faceTimer - dtSec);
+      if (cust.faceTimer === 0 && cust.face !== 0 && cust.phase === 'waiting') cust.face = 0;
+
+      if (cust.phase === 'leaving') {
         cust.leaveTimer = Math.max(0, cust.leaveTimer - dtSec);
-        if (cust.leaveTimer === 0) {
-          cust.leaving = false;
-          setCustomerOrder(cust);
+        cust.x += board.w * 2.0 * dtSec;
+        if (cust.leaveTimer <= 0 || cust.x > board.w * 1.25) {
+          cust.active = false;
+          cust.phase = 'idle';
+          cust.order = [];
+          game.nextCustomerSpawnAt = Math.min(game.nextCustomerSpawnAt, t + 350);
         }
       }
     }
 
-    // Projectiles
-    for (const p of game.inFlight) {
-      if (p.done) continue;
-      const age = t - p.startMs;
-      const k = clamp(age / p.durationMs, 0, 1);
-      const e = easeOutCubic(k);
-      const x = lerp(p.fromX, p.toX, e);
-      const y = lerp(p.fromY, p.toY, e);
-      p.x = x;
-      p.y = y;
-      p.z = e; // cheap scale driver
-      if (k >= 1) p.done = true;
+    if (activeCustomerCount() < NUM_CUSTOMER_SLOTS && t >= game.nextCustomerSpawnAt) {
+      const idx = game.customers.findIndex((c) => !c.active);
+      if (idx >= 0) {
+        spawnCustomer(idx);
+        game.nextCustomerSpawnAt = t + 500;
+      }
     }
-    game.inFlight = game.inFlight.filter((p) => !p.done);
+
+    updateBallistics(dtSec);
+    updateParticles(dtSec);
 
     // Touch toast auto-hide
     if (ui.touchToast && game.touchToastUntil > 0 && t > game.touchToastUntil) {
@@ -903,21 +1083,74 @@
     const newLevel = clamp(1 + Math.floor(game.score / 160), 1, MAX_LEVEL);
     if (newLevel !== game.level) {
       game.level = newLevel;
-      // Slightly upgrade all current orders for readability.
-      for (const cust of game.customers) setCustomerOrder(cust);
+    }
+  }
+
+  function drawParticles() {
+    for (const q of game.particles) {
+      const a = clamp(q.life, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = a * 0.9;
+      ctx.fillStyle = q.color;
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, q.size * (0.6 + 0.4 * a), 0, TAU);
+      ctx.fill();
+      ctx.restore();
     }
   }
 
   function draw() {
-    if (!board.size) return;
+    if (!board.w || !board.h) return;
     const t = nowMs() / 1000;
 
     drawBackground(board, t);
 
-    // Slingshot rubber band (pivot at center → finger while aiming)
+    for (const cust of game.customers) {
+      if (!cust.active) continue;
+      const baseR = board.customerDrawR;
+      const leavePulse = cust.phase === 'leaving' ? 0.6 + 0.4 * Math.sin(t * 12 + cust.animPhase) : 0;
+      const scale = cust.phase === 'leaving' ? 1 - (1 - (cust.leaveTimer || 0)) * 0.45 : 1;
+      const r = baseR * scale;
+      drawCustomer(cust, cust.x, board.slotY, r, t, leavePulse);
+    }
+
+    drawTrashCan(board);
+
+    if (game.activeIngredient) {
+      const bounce = Math.sin(t * 6.5) * board.size * 0.008;
+      const ix = game.activeIngredient.x;
+      const iy = game.activeIngredient.y + bounce;
+      const centerScale = board.size * 0.0036;
+      drawIngredient(game.activeIngredient.id, ix, iy, centerScale, {
+        time: nowMs(),
+        bob: true,
+        rotate: Math.sin(t * 4) * 0.08,
+      });
+      const label = INGREDIENT_LABELS[game.activeIngredient.id] || game.activeIngredient.id;
+      ctx.save();
+      ctx.fillStyle = 'rgba(234,242,255,0.94)';
+      ctx.font = `${Math.max(12, Math.floor(board.size * 0.03))}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowBlur = 6;
+      ctx.fillText(label, ix, iy + board.pickupRadius * 1.35);
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(board.pivotX, board.yPivot, Math.max(5, board.size * 0.018), 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
     if (game.aiming && game.activeIngredient) {
-      const px = board.cx;
-      const py = board.cy;
+      const px = board.pivotX;
+      const py = board.yPivot;
       const ax = game.aimX;
       const ay = game.aimY;
       const mx = (px + ax) * 0.5;
@@ -925,89 +1158,49 @@
       const nx = -(ay - py);
       const ny = ax - px;
       const nlen = Math.hypot(nx, ny) || 1;
-      const bow = board.size * 0.04;
+      const bow = board.size * 0.035;
       const bx = mx + (nx / nlen) * bow;
       const by = my + (ny / nlen) * bow;
       ctx.save();
       ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(255,255,255,0.38)';
-      ctx.lineWidth = Math.max(2.5, board.size * 0.007);
+      ctx.strokeStyle = 'rgba(255,255,255,0.36)';
+      ctx.lineWidth = Math.max(2.5, board.size * 0.006);
       ctx.beginPath();
       ctx.moveTo(px, py);
       ctx.quadraticCurveTo(bx, by, ax, ay);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(180,230,255,0.35)';
-      ctx.lineWidth = Math.max(1.5, board.size * 0.004);
+      ctx.strokeStyle = 'rgba(180,230,255,0.32)';
+      ctx.lineWidth = Math.max(1.5, board.size * 0.0035);
       ctx.beginPath();
       ctx.moveTo(px, py);
       ctx.lineTo(ax, ay);
       ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath();
-      ctx.arc(ax, ay, Math.max(4, board.size * 0.016), 0, TAU);
+      ctx.arc(ax, ay, Math.max(4, board.size * 0.014), 0, TAU);
       ctx.fill();
       ctx.restore();
     }
 
-    // Customers
-    for (let i = 0; i < 8; i++) {
-      const cust = game.customers[i];
-      const ang = customerAngles[i];
-      const x = board.cx + Math.cos(ang) * board.rCustomers;
-      const y = board.cy + Math.sin(ang) * board.rCustomers;
-
-      const baseR = board.size * 0.060;
-      const leavePulse = cust.leaving ? (0.6 + 0.4 * Math.sin(t * 12 + cust.phase)) : 0;
-      const scale = cust.leaving ? (1 - (1 - (cust.leaveTimer || 0)) * 0.7) : 1;
-      const r = baseR * scale;
-      drawCustomer(cust, x, y, r, t, leavePulse);
-    }
-
-    // Active ingredient in center
-    if (game.activeIngredient) {
-      const bounce = Math.sin(t * 6.5) * board.size * 0.01;
-      const centerScale = board.size * 0.0039; // ~1.3-1.6 on typical phones
-      drawIngredient(game.activeIngredient.id, board.cx, board.cy + bounce, centerScale, {
-        time: nowMs(),
-        bob: true,
-        rotate: Math.sin(t * 4) * 0.08,
-      });
-
-      // Center ingredient name
-      const label = INGREDIENT_LABELS[game.activeIngredient.id] || game.activeIngredient.id;
-      ctx.save();
-      ctx.fillStyle = 'rgba(234,242,255,0.96)';
-      ctx.font = `${Math.max(14, Math.floor(board.size * 0.035))}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
-      ctx.shadowBlur = 8;
-      ctx.fillText(label, board.cx, board.cy + board.rCenter * 1.15);
-      ctx.restore();
-    }
-
-    // Projectiles
     for (const p of game.inFlight) {
-      const k = (nowMs() - p.startMs) / p.durationMs;
-      const k2 = clamp(k, 0, 1);
-      const scale = p.kind === 'deliver' ? lerp(0.72, 1.02, k2) : lerp(0.86, 1.00, k2);
-      const rot = (p.kind === 'deliver' ? 1 : -1) * Math.sin((k2 * 8 + p.wobble) * TAU) * 0.16;
-
-      const x = p.x ?? p.fromX;
-      const y = p.y ?? p.fromY;
-
-      drawIngredient(p.ingId, x, y, 0.72 * scale, {
+      if (p.dead) continue;
+      const flightT = (nowMs() - p.startMs) / 1000;
+      const rot = Math.sin((flightT * 10 + p.wobble) * TAU) * 0.18;
+      drawIngredient(p.ingId, p.x, p.y, board.size * 0.0033, {
         time: nowMs(),
         rotate: rot,
         bob: false,
       });
     }
 
-    // Border vignette
+    drawParticles();
+
     ctx.save();
-    const vign = ctx.createRadialGradient(board.cx, board.cy, board.size * 0.15, board.cx, board.cy, board.size * 0.65);
+    const cx = board.w * 0.5;
+    const cy = board.h * 0.45;
+    const vign = ctx.createRadialGradient(cx, cy, board.size * 0.12, cx, cy, board.size * 0.95);
     vign.addColorStop(0, 'rgba(0,0,0,0)');
-    vign.addColorStop(1, 'rgba(0,0,0,0.35)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.32)');
     ctx.fillStyle = vign;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
@@ -1026,8 +1219,10 @@
     if (game.swipeStart) return;
 
     const { x, y } = pointerToCanvas(e);
-    const distFromCenter = Math.hypot(x - board.cx, y - board.cy);
-    if (distFromCenter > board.centerStartMax) return;
+    if (y < board.yBottom0 - 4) return;
+
+    const distPivot = Math.hypot(x - board.pivotX, y - board.yPivot);
+    if (distPivot > board.centerStartMax) return;
 
     canvas.setPointerCapture?.(e.pointerId);
     const t = nowMs();
@@ -1057,17 +1252,18 @@
     if (e.pointerId !== game.swipeStart.id) return;
 
     const { x, y } = pointerToCanvas(e);
-    const pullX = x - board.cx;
-    const pullY = y - board.cy;
+    const pullX = x - board.pivotX;
+    const pullY = y - board.yPivot;
     const stretch = Math.hypot(pullX, pullY);
 
-    // Tap: little stretch from center (finger stayed near pivot)
     if (stretch <= board.tapMaxDistance) {
       const t = nowMs();
-      const endDistFromCenter = stretch;
-      const inCenter = endDistFromCenter <= board.rCenter * 1.25;
-
-      if (inCenter && t >= game.changeCooldownUntil) {
+      const ing = game.activeIngredient;
+      let nearPickup = false;
+      if (ing && typeof ing.x === 'number') {
+        nearPickup = Math.hypot(x - ing.x, y - ing.y) <= board.pickupRadius * 1.35;
+      }
+      if (nearPickup && t >= game.changeCooldownUntil) {
         if (rerollIngredient()) game.changeCooldownUntil = t + 700;
       } else {
         showTouchToast(700);
@@ -1081,7 +1277,7 @@
       return;
     }
 
-    attemptSlingshotLaunch(pullX, pullY);
+    launchFromSlingshotPull(pullX, pullY);
 
     clearGestureState();
 

@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Snackable Swipe (Prototype)</title>
+    <title>Snackable Kitchen (Portrait)</title>
     <link rel="stylesheet" href="./game.css" />
   </head>
   <body>
     <div id="app">
-      <canvas id="gameCanvas" aria-label="Snackable Swipe game"></canvas>
+      <canvas id="gameCanvas" aria-label="Snackable Kitchen portrait game"></canvas>
 
       <div id="uiOverlay" aria-hidden="false">
         <div class="topBar">
@@ -19,7 +19,7 @@
         </div>
 
         <div id="centerHelp" class="help">
-          Swipe from the center in any of 8 directions.
+          Pull from the slingshot dot in the kitchen to throw. Tap the ingredient to reroll. Trash is on the right.
         </div>
 
         <button id="startBtn" class="startBtn" type="button">Start</button>
@@ -28,11 +28,11 @@
           <div class="endTitle">Time!</div>
           <div class="endScore">Final score: <span id="finalScore">0</span></div>
           <button id="restartBtn" class="startBtn" type="button">Play again</button>
-          <div class="endHint">Tip: Chain swipes quickly for higher streak.</div>
+          <div class="endHint">Tip: Chain correct throws quickly for a higher streak.</div>
         </div>
 
         <div id="touchToast" class="touchToast" hidden>
-          Make a swipe from the center.
+          Pull from the slingshot pivot in the kitchen area.
         </div>
       </div>
     </div>

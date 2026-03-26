@@ -21,19 +21,23 @@ html, body{
   width:100%;
   height:100%;
   display:flex;
-  align-items:center;
+  align-items:stretch;
   justify-content:center;
-  padding: max(10px, env(safe-area-inset-top));
+  padding: 0;
+  padding-top: max(0px, env(safe-area-inset-top));
+  padding-bottom: env(safe-area-inset-bottom);
+  box-sizing: border-box;
 }
 
 #gameCanvas{
-  width:min(92vw, 92vh);
-  height:min(92vw, 92vh);
-  border-radius: 26px;
-  background: radial-gradient(900px 800px at 50% 35%, rgba(255,255,255,0.04), rgba(255,255,255,0.00));
-  box-shadow:
-    0 20px 70px rgba(0,0,0,0.35),
-    inset 0 0 0 1px rgba(255,255,255,0.08);
+  width:100%;
+  height:100%;
+  max-width: 520px;
+  margin: 0 auto;
+  display:block;
+  border-radius: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
   touch-action: none;
 }
 
