@@ -60,6 +60,12 @@
     pityTrashThreshold: 3,
   };
 
+  /** Pseudo-depth: smaller screen Y = farther into the room (away from camera at bottom). */
+  const DEPTH = {
+    scaleMin: 0.52,
+    pickupVisualScale: 1.12,
+  };
+
   const NUM_CUSTOMER_SLOTS = 3;
 
   const INGREDIENT_LABELS = {
@@ -508,40 +514,226 @@
     ctx.restore();
   }
 
-  function drawBackground(board, t) {
-    const { w, h, yTop0, yCounter0, yBottom0, yBottom1 } = board;
+  function drawWindowFrame(cxw, cyw, rw, rh, tilt) {
+    ctx.save();
+    ctx.translate(cxw, cyw);
+    ctx.rotate(tilt);
+    const g = ctx.createLinearGradient(-rw, -rh, rw, rh);
+    g.addColorStop(0, 'rgba(140,190,255,0.42)');
+    g.addColorStop(0.45, 'rgba(200,230,255,0.55)');
+    g.addColorStop(1, 'rgba(90,140,210,0.35)');
+    ctx.fillStyle = g;
+    ctx.strokeStyle = 'rgba(40,55,90,0.65)';
+    ctx.lineWidth = Math.max(2, rh * 0.08);
+    drawRoundedRect(-rw, -rh, rw * 2, rh * 2, rh * 0.12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(30,45,75,0.5)';
+    ctx.lineWidth = Math.max(1.5, rh * 0.04);
+    ctx.beginPath();
+    ctx.moveTo(0, -rh);
+    ctx.lineTo(0, rh);
+    ctx.moveTo(-rw, 0);
+    ctx.lineTo(rw, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBackground(board, t, aimStretchT = 0) {
+    const { w, h, yTop0, yCounter0, yBottom0, yBottom1, cx } = board;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const topH = yCounter0 - yTop0;
-    const gTop = ctx.createLinearGradient(0, yTop0, 0, yCounter0);
-    gTop.addColorStop(0, 'rgba(120,140,200,0.14)');
-    gTop.addColorStop(1, 'rgba(40,55,95,0.10)');
-    ctx.fillStyle = gTop;
-    ctx.fillRect(0, yTop0, w, topH);
+    const widen = aimStretchT * w * 0.028;
+    const vpX = cx + aimStretchT * w * 0.014;
+    const backW = w * 0.19 * (1 - aimStretchT * 0.12);
+    const backWallTopY = yTop0 + topH * 0.06;
+    const backWallBotY = yTop0 + topH * 0.4;
+    const floorMeetY = yTop0 + topH * 0.44;
+    const ceilH = topH * 0.1;
+    const kitchenNarrow = w * 0.07 * (1 + aimStretchT * 0.35);
 
-    const counterH = yBottom0 - yCounter0;
-    const gMid = ctx.createLinearGradient(0, yCounter0, 0, yBottom0);
-    gMid.addColorStop(0, 'rgba(95,72,52,0.55)');
-    gMid.addColorStop(0.5, 'rgba(140,100,70,0.45)');
-    gMid.addColorStop(1, 'rgba(60,44,32,0.50)');
-    ctx.fillStyle = gMid;
-    ctx.fillRect(0, yCounter0, w, counterH);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = Math.max(2, h * 0.006);
+    // Ceiling
+    const ceilG = ctx.createLinearGradient(0, yTop0, 0, yTop0 + ceilH);
+    ceilG.addColorStop(0, 'rgba(22,28,48,0.96)');
+    ceilG.addColorStop(1, 'rgba(45,55,88,0.88)');
+    ctx.fillStyle = ceilG;
     ctx.beginPath();
-    ctx.moveTo(0, yCounter0 + counterH * 0.5);
-    ctx.lineTo(w, yCounter0 + counterH * 0.5);
+    ctx.moveTo(0, yTop0);
+    ctx.lineTo(w, yTop0);
+    ctx.lineTo(w, yTop0 + ceilH);
+    ctx.lineTo(0, yTop0 + ceilH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(120,200,255,0.14)';
+    for (let i = 0; i < 3; i++) {
+      const sx = w * (0.22 + i * 0.28);
+      ctx.fillRect(sx - w * 0.06, yTop0 + ceilH * 0.15, w * 0.11, ceilH * 0.35);
+    }
+
+    // Side walls
+    const wallLeftG = ctx.createLinearGradient(0, yTop0, vpX - backW, floorMeetY);
+    wallLeftG.addColorStop(0, 'rgba(38,48,78,0.92)');
+    wallLeftG.addColorStop(1, 'rgba(28,34,58,0.85)');
+    ctx.fillStyle = wallLeftG;
+    ctx.beginPath();
+    ctx.moveTo(0, yTop0 + ceilH);
+    ctx.lineTo(vpX - backW * 1.05, backWallTopY);
+    ctx.lineTo(vpX - backW * 1.45, floorMeetY);
+    ctx.lineTo(-widen, yCounter0);
+    ctx.lineTo(-widen, yTop0 + ceilH);
+    ctx.closePath();
+    ctx.fill();
+
+    const wallRightG = ctx.createLinearGradient(w, yTop0, vpX + backW, floorMeetY);
+    wallRightG.addColorStop(0, 'rgba(42,52,82,0.92)');
+    wallRightG.addColorStop(1, 'rgba(26,32,56,0.85)');
+    ctx.fillStyle = wallRightG;
+    ctx.beginPath();
+    ctx.moveTo(w, yTop0 + ceilH);
+    ctx.lineTo(vpX + backW * 1.05, backWallTopY);
+    ctx.lineTo(vpX + backW * 1.45, floorMeetY);
+    ctx.lineTo(w + widen, yCounter0);
+    ctx.lineTo(w + widen, yTop0 + ceilH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Back wall
+    const backG = ctx.createLinearGradient(vpX, backWallTopY, vpX, backWallBotY);
+    backG.addColorStop(0, 'rgba(55,65,105,0.88)');
+    backG.addColorStop(1, 'rgba(32,40,72,0.92)');
+    ctx.fillStyle = backG;
+    ctx.beginPath();
+    ctx.moveTo(vpX - backW, backWallTopY);
+    ctx.lineTo(vpX + backW, backWallTopY);
+    ctx.lineTo(vpX + backW * 1.42, backWallBotY);
+    ctx.lineTo(vpX - backW * 1.42, backWallBotY);
+    ctx.closePath();
+    ctx.fill();
+
+    drawWindowFrame(vpX - backW * 0.55, (backWallTopY + backWallBotY) * 0.48, backW * 0.38, (backWallBotY - backWallTopY) * 0.22, 0);
+    drawWindowFrame(vpX + backW * 0.55, (backWallTopY + backWallBotY) * 0.52, backW * 0.36, (backWallBotY - backWallTopY) * 0.2, 0);
+
+    drawWindowFrame(w * 0.06, yTop0 + topH * 0.38, w * 0.055, topH * 0.2, -0.08);
+    drawWindowFrame(w * 0.94, yTop0 + topH * 0.38, w * 0.055, topH * 0.2, 0.08);
+
+    // Dining floor (perspective)
+    const floorG = ctx.createLinearGradient(0, floorMeetY, 0, yCounter0);
+    floorG.addColorStop(0, 'rgba(48,42,62,0.55)');
+    floorG.addColorStop(1, 'rgba(28,32,52,0.72)');
+    ctx.fillStyle = floorG;
+    ctx.beginPath();
+    ctx.moveTo(-widen, yCounter0);
+    ctx.lineTo(w + widen, yCounter0);
+    ctx.lineTo(vpX + backW * 1.45, floorMeetY);
+    ctx.lineTo(vpX - backW * 1.45, floorMeetY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i <= 5; i++) {
+      const f = i / 6;
+      const lx = lerp(-widen * 0.5, vpX - backW * 1.2, f);
+      const rx = lerp(w + widen * 0.5, vpX + backW * 1.2, f);
+      const ly = lerp(yCounter0, floorMeetY, f);
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(rx, ly);
+      ctx.stroke();
+    }
+
+    // Kitchen floor (near camera)
+    const kitG = ctx.createLinearGradient(0, yBottom0, 0, yBottom1);
+    kitG.addColorStop(0, 'rgba(32,40,68,0.88)');
+    kitG.addColorStop(1, 'rgba(16,20,38,0.94)');
+    ctx.fillStyle = kitG;
+    ctx.beginPath();
+    ctx.moveTo(0, yBottom1);
+    ctx.lineTo(w, yBottom1);
+    ctx.lineTo(w - kitchenNarrow, yBottom0);
+    ctx.lineTo(kitchenNarrow, yBottom0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
+    ctx.fillRect(0, yBottom0, w, h * 0.018);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = Math.max(1, h * 0.002);
+    ctx.beginPath();
+    ctx.moveTo(kitchenNarrow * 0.5, yBottom0 + (yBottom1 - yBottom0) * 0.35);
+    ctx.lineTo(w * 0.5, yBottom0 + (yBottom1 - yBottom0) * 0.22);
+    ctx.lineTo(w - kitchenNarrow * 0.5, yBottom0 + (yBottom1 - yBottom0) * 0.35);
+    ctx.stroke();
+  }
+
+  function drawCounter3D(board, aimStretchT = 0) {
+    const { w, h, yCounter0, yBottom0, cx } = board;
+    const counterH = yBottom0 - yCounter0;
+    const lip = Math.max(3, counterH * 0.22);
+    const inset = w * 0.04 * (1 + aimStretchT * 0.2);
+    const topNarrow = inset * 0.55;
+
+    const frontG = ctx.createLinearGradient(0, yCounter0, 0, yBottom0);
+    frontG.addColorStop(0, 'rgba(120,88,62,0.92)');
+    frontG.addColorStop(0.45, 'rgba(88,62,44,0.95)');
+    frontG.addColorStop(1, 'rgba(52,38,28,0.98)');
+    ctx.fillStyle = frontG;
+    ctx.beginPath();
+    ctx.moveTo(inset, yCounter0 + lip);
+    ctx.lineTo(w - inset, yCounter0 + lip);
+    ctx.lineTo(w - inset, yBottom0);
+    ctx.lineTo(inset, yBottom0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(35,28,22,0.9)';
+    ctx.beginPath();
+    ctx.moveTo(0, yCounter0 + lip * 0.85);
+    ctx.lineTo(inset, yCounter0 + lip);
+    ctx.lineTo(inset, yBottom0);
+    ctx.lineTo(0, yBottom0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(w, yCounter0 + lip * 0.85);
+    ctx.lineTo(w - inset, yCounter0 + lip);
+    ctx.lineTo(w - inset, yBottom0);
+    ctx.lineTo(w, yBottom0);
+    ctx.closePath();
+    ctx.fill();
+
+    const topG = ctx.createLinearGradient(0, yCounter0 - lip, w, yCounter0);
+    topG.addColorStop(0, 'rgba(160,120,88,0.95)');
+    topG.addColorStop(0.5, 'rgba(200,155,110,0.92)');
+    topG.addColorStop(1, 'rgba(130,95,68,0.95)');
+    ctx.fillStyle = topG;
+    ctx.beginPath();
+    ctx.moveTo(topNarrow, yCounter0);
+    ctx.lineTo(w - topNarrow, yCounter0);
+    ctx.lineTo(w - inset, yCounter0 + lip);
+    ctx.lineTo(inset, yCounter0 + lip);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = Math.max(1.5, h * 0.003);
+    ctx.beginPath();
+    ctx.moveTo(topNarrow, yCounter0);
+    ctx.lineTo(w - topNarrow, yCounter0);
     ctx.stroke();
 
-    const gBot = ctx.createLinearGradient(0, yBottom0, 0, yBottom1);
-    gBot.addColorStop(0, 'rgba(35,42,70,0.35)');
-    gBot.addColorStop(1, 'rgba(18,22,40,0.55)');
-    ctx.fillStyle = gBot;
-    ctx.fillRect(0, yBottom0, w, yBottom1 - yBottom0);
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = Math.max(2, counterH * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(inset, yCounter0 + lip + counterH * 0.5);
+    ctx.lineTo(w - inset, yCounter0 + lip + counterH * 0.5);
+    ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(0, yBottom0, w, h * 0.02);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(cx - w * 0.08, yCounter0 + lip + 2, w * 0.16, Math.max(2, counterH * 0.04));
   }
 
   const CUSTOMER_PALETTES = [
@@ -655,6 +847,11 @@
     board.splashAoERadius = Math.min(w, h) * 0.26;
     board.tapMaxDistance = Math.min(w, h) * SWIPE.tapMaxMoveRatio;
     board.pickupGrabMax = Math.min(w, h) * 0.2;
+
+    board.yDepthNear = board.yBottom0 + bottomH * 0.11;
+    board.yDepthFar = board.yTop0 + Math.max(h * 0.042, topH * 0.055);
+    board.depthScaleMin = DEPTH.scaleMin;
+    board.pickupVisualScale = DEPTH.pickupVisualScale;
     syncTrashButton();
   }
 
@@ -681,7 +878,25 @@
     splashAoERadius: 0,
     tapMaxDistance: 0,
     pickupGrabMax: 0,
+    yDepthNear: 0,
+    yDepthFar: 0,
+    depthScaleMin: DEPTH.scaleMin,
+    pickupVisualScale: DEPTH.pickupVisualScale,
   };
+
+  function depth01At(b, y) {
+    const denom = b.yDepthNear - b.yDepthFar;
+    if (denom < 1e-6) return 0;
+    return clamp((b.yDepthNear - y) / denom, 0, 1);
+  }
+
+  function depthEase(t) {
+    return t * t * (3 - 2 * t);
+  }
+
+  function depthScaleAt(b, y) {
+    return lerp(1, b.depthScaleMin, depthEase(depth01At(b, y)));
+  }
 
   const game = {
     running: false,
@@ -1072,7 +1287,9 @@
           const dx = p.x - cust.x;
           const dy = p.y - cust.anchorY;
           const d = Math.hypot(dx, dy);
-          const hitDist = board.customerHitR + board.projectileRadius;
+          const hitDist =
+            board.customerHitR * depthScaleAt(board, cust.anchorY) +
+            board.projectileRadius * depthScaleAt(board, p.y);
           if (d < hitDist && d < bestD) {
             bestD = d;
             best = cust;
@@ -1233,16 +1450,30 @@
     ctx.save();
     ctx.translate(sh, sh2);
 
-    drawBackground(board, t);
+    let aimStretchTBg = 0;
+    if (game.aiming && game.activeIngredient && !game.trashArc) {
+      const stretchA = Math.hypot(game.aimX - game.aimRestX, game.aimY - game.aimRestY);
+      const smA = board.size * SLINGSHOT.stretchMaxRatio;
+      aimStretchTBg = clamp(
+        (stretchA - board.tapMaxDistance) / Math.max(1e-6, smA - board.tapMaxDistance),
+        0,
+        1
+      );
+    }
+
+    drawBackground(board, t, aimStretchTBg);
 
     for (const cust of game.customers) {
       if (!cust.active) continue;
       const baseR = board.customerDrawR;
       const leavePulse = cust.phase === 'leaving' ? 0.6 + 0.4 * Math.sin(t * 12 + cust.animPhase) : 0;
       const scale = cust.phase === 'leaving' ? 1 - (1 - (cust.leaveTimer || 0)) * 0.45 : 1;
-      const r = baseR * scale;
+      const depthSc = depthScaleAt(board, cust.anchorY);
+      const r = baseR * depthSc * scale;
       drawCustomer(cust, cust.x, cust.anchorY, r, t, leavePulse);
     }
+
+    drawCounter3D(board, aimStretchTBg);
 
     if (game.activeIngredient) {
       const ing = game.activeIngredient;
@@ -1264,7 +1495,8 @@
         iy = ing.restY + bob;
       }
       const pullMult = 1 + 0.3 * stretchT;
-      const centerScale = board.size * 0.0036 * pullMult;
+      const depthPick = depthScaleAt(board, iy);
+      const centerScale = board.size * 0.0036 * pullMult * board.pickupVisualScale * depthPick;
       drawIngredient(ing.id, ix, iy, centerScale, {
         time: nowMs(),
         bob: !game.aiming && !game.trashArc,
@@ -1316,7 +1548,7 @@
       if (p.dead) continue;
       const flightT = (nowMs() - p.startMs) / 1000;
       const rot = Math.sin((flightT * 10 + p.wobble) * TAU) * 0.18;
-      drawIngredient(p.ingId, p.x, p.y, board.size * 0.0033, {
+      drawIngredient(p.ingId, p.x, p.y, board.size * 0.0033 * depthScaleAt(board, p.y), {
         time: nowMs(),
         rotate: rot,
         bob: false,
