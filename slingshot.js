@@ -136,6 +136,7 @@ export class SlingshotController {
    * @param {import('./gameCore.js').GameSession} o.gameSession
    * @param {import('./floatingBonusText.js').FloatingBonusLayer} [o.floatingLayer]
    * @param {{ screenShake?: import('./juiceSystems.js').ScreenShake, coinFlyout?: import('./juiceSystems.js').CoinFlyoutLayer, coinsHudEl?: HTMLElement | null }} [o.juice]
+   * @param {import('./audioSystem.js').GameAudio | null} [o.gameAudio]
    * @param {() => void} [o.onSettled] after projectile ends / burger returns to plate
    */
   constructor(o) {
@@ -149,6 +150,7 @@ export class SlingshotController {
     this.gameSession = o.gameSession;
     this.floatingLayer = o.floatingLayer ?? null;
     this.juice = o.juice ?? {};
+    this.gameAudio = o.gameAudio ?? null;
     this._onSettled = typeof o.onSettled === 'function' ? o.onSettled : null;
 
     this.counterBox = getCounterAabb();
@@ -396,6 +398,7 @@ export class SlingshotController {
       thrownStack: stack,
     };
     this.gameSession.notifyThrowLaunched();
+    this.gameAudio?.playThrow();
   }
 
   _finishThrow() {
@@ -432,6 +435,8 @@ export class SlingshotController {
    * @param {THREE.Vector3 | null} [wallNormal]
    */
   _splatAt(pos, breakCombo = true, variant = 'ground', wallNormal = null) {
+    if (variant === 'face') this.gameAudio?.playWrongSplat();
+    else this.gameAudio?.playMissThud();
     if (breakCombo) this.gameSession.onComboBreakEvent();
     if (variant === 'ground') this.juice.screenShake?.trigger(0.065);
     if (variant === 'wall') this.juice.screenShake?.trigger(0.055);
@@ -562,6 +567,7 @@ export class SlingshotController {
             }
           }
           this.juice.screenShake?.trigger(0.05);
+          this.gameAudio?.playCorrect();
           this._finishThrow();
         } else {
           const facePos = new THREE.Vector3();

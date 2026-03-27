@@ -12,6 +12,7 @@ import { SlingshotController } from './slingshot.js';
 import { GameSession } from './gameCore.js';
 import { FloatingBonusLayer } from './floatingBonusText.js';
 import { ScreenShake, CoinFlyoutLayer } from './juiceSystems.js';
+import { GameAudio } from './audioSystem.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -235,6 +236,14 @@ function init() {
   camera.position.set(0, 8, 10);
   camera.lookAt(0, 0, 0);
 
+  const gameAudio = new GameAudio();
+  gameAudio.init(camera);
+
+  const unlockAudioOnce = () => {
+    gameAudio.tryUnlock().then(() => gameAudio.startMusicIfNeeded());
+  };
+  window.addEventListener('pointerdown', unlockAudioOnce, { once: true, passive: true });
+
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
@@ -344,6 +353,7 @@ function init() {
       coinFlyout,
       coinsHudEl: coinsEl,
     },
+    gameAudio,
     onSettled: refreshHud,
   });
 
@@ -366,6 +376,7 @@ function init() {
       const result = burger.addIngredient(type);
       if (result.ok) {
         punchButton(btn);
+        gameAudio.playTap();
         stackView.rebuildFromStack(burger.getStack(), { animateLast: true });
         if (burger.getStack().length === 1) {
           gameSession.notifyFirstIngredientPlaced();
@@ -379,6 +390,7 @@ function init() {
   trashBtn?.addEventListener('click', () => {
     if (!gameSession.canPlay() || slingshot.isBusy()) return;
     punchButton(trashBtn);
+    gameAudio.playTrash();
     gameSession.resetCombo();
     gameSession.clearBurgerTiming();
     burger.reset();
@@ -411,6 +423,7 @@ function init() {
       });
     }
     screenShake.trigger(0.045);
+    gameAudio.playCorrect();
     burger.reset();
     stackView.clearFeedbacks();
     stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
