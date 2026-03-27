@@ -68,7 +68,7 @@ export class WorldPickables {
     this._addIngredientPile('bun', 1.88, -1.1);
 
     const trashMat = new THREE.MeshStandardMaterial({
-      color: 0x3a3a3a,
+      color: 0xf2f0ec,
       roughness: 0.88,
       metalness: 0.25,
     });
@@ -76,7 +76,7 @@ export class WorldPickables {
       new THREE.CylinderGeometry(0.2 * 2, 0.26 * 2, 0.42 * 2, 16),
       trashMat,
     );
-    const trashZ = 4.2;
+    const trashZ = 3;
     const trashX = 0;
     trash.position.set(trashX, 0.27 * 2, trashZ);
     trash.castShadow = true;
@@ -129,7 +129,7 @@ export class WorldPickables {
     });
 
     const textMat = new THREE.MeshStandardMaterial({
-      color: 0x2a1810,
+      color: 0xf2f0ec,
       roughness: 0.35,
       metalness: 0.08,
       emissive: 0x221008,
@@ -141,8 +141,8 @@ export class WorldPickables {
       (font) => {
         const geo = new TextGeometry('OPEN', {
           font,
-          size: 0.34,
-          depth: 0.01,
+          size: 0.26,
+          depth: 0.002,
           curveSegments: 8,
           bevelEnabled: true,
           bevelThickness: 0.02,
@@ -159,7 +159,7 @@ export class WorldPickables {
         const textMesh = new THREE.Mesh(geo, textMat);
         textMesh.userData.openShop = true;
         textMesh.position.set(0, 0.06, boardD / 2 + 0.12);
-        textMesh.castShadow = true;
+        textMesh.castShadow = false;
         openGroup.add(textMesh);
         this._meshes.push(textMesh);
       },
