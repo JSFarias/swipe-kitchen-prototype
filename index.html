@@ -1,47 +1,68 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Snackable Kitchen (Portrait)</title>
-    <link rel="stylesheet" href="./game.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Restaurant Room — Three.js</title>
+    <style>
+      /**
+       * Full-viewport “device frame”: black letterboxing simulates a portrait phone.
+       * Inner stage keeps 9:16 and stays centered.
+       */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0a0a;
+      }
+
+      #device-frame {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+
+      /* 9:16 portrait canvas area — height-limited on wide screens, width-limited on tall screens */
+      #canvas-stage {
+        position: relative;
+        width: min(100vw, calc(100vh * 9 / 16));
+        height: min(100vh, calc(100vw * 16 / 9));
+        aspect-ratio: 9 / 16;
+        max-width: 100%;
+        max-height: 100%;
+        background: #111;
+      }
+
+      #canvas-stage canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.169.0/build/three.module.js"
+        }
+      }
+    </script>
   </head>
   <body>
-    <div id="app">
-      <canvas id="gameCanvas" aria-label="Snackable Kitchen portrait game"></canvas>
-
-      <div id="uiOverlay" aria-hidden="false">
-        <div class="topBar">
-          <div class="stat">Score: <span id="score">0</span></div>
-          <div class="stat">Streak: <span id="streak">0</span></div>
-          <div class="stat">Best: <span id="best">0</span></div>
-          <div class="stat">Time: <span id="timeLeft">60</span></div>
-        </div>
-
-        <div id="centerHelp" class="help">
-          Drag the ingredient to aim and release to throw. Tap lightly to reroll. Use Trash to discard.
-        </div>
-
-        <button id="trashBtn" class="trashBtn" type="button" aria-label="Trash current ingredient" hidden>
-          Trash
-        </button>
-
-        <button id="startBtn" class="startBtn" type="button">Start</button>
-
-        <div id="endScreen" class="endScreen" hidden>
-          <div class="endTitle">Time!</div>
-          <div class="endScore">Final score: <span id="finalScore">0</span></div>
-          <button id="restartBtn" class="startBtn" type="button">Play again</button>
-          <div class="endHint">Tip: Chain correct throws quickly for a higher streak.</div>
-        </div>
-
-        <div id="touchToast" class="touchToast" hidden>
-          Drag the ingredient from its spot to sling it toward customers.
-        </div>
+    <div id="device-frame">
+      <div id="canvas-stage">
+        <!-- Renderer appends its canvas here -->
       </div>
     </div>
-
-    <script src="./game.js"></script>
+    <script type="module" src="./main.js"></script>
   </body>
 </html>
-
