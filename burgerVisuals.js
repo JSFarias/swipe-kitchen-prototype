@@ -24,7 +24,7 @@ const STACK_GAP = 0.012;
 export function createTapFeedback(layerGroup) {
   const state = {
     t: 0,
-    duration: 0.38,
+    duration: 0.44,
     baseScale: new THREE.Vector3(1, 1, 1),
   };
 

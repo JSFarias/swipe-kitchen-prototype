@@ -45,6 +45,11 @@ export class CustomerView {
     /** Brief flash when hit by a thrown burger. */
     this._hitFlash = 0;
 
+    /** Squash & stretch on hit (0 = idle). */
+    this._squashT = 0;
+    this._squashDur = 0;
+    this._squashIntensity = 1;
+
     this._bodyMat = createCustomerBodyMaterial(customer.state);
     /** @type {THREE.MeshStandardMaterial[]} */
     this._moodMaterials = [this._bodyMat];
@@ -88,6 +93,43 @@ export class CustomerView {
 
   playHitFlash() {
     this._hitFlash = 0.45;
+  }
+
+  /**
+   * @param {'light' | 'hard'} strength
+   */
+  playHitSquash(strength = 'light') {
+    this._squashIntensity = strength === 'hard' ? 1.35 : 0.85;
+    this._squashDur = strength === 'hard' ? 0.38 : 0.28;
+    this._squashT = 0;
+  }
+
+  /**
+   * @param {number} dt
+   */
+  updateSquash(dt) {
+    if (this._squashDur <= 0) return;
+    this._squashT += dt;
+    const u = Math.min(1, this._squashT / this._squashDur);
+    if (u < 0.22) {
+      const p = u / 0.22;
+      const sy = THREE.MathUtils.lerp(1, 0.68, p) * this._squashIntensity;
+      const sxz = THREE.MathUtils.lerp(1, 1.12, p);
+      this.root.scale.set(sxz, sy, sxz);
+    } else if (u < 0.55) {
+      const p = (u - 0.22) / (0.55 - 0.22);
+      const sy = THREE.MathUtils.lerp(0.68, 1.14, p);
+      const sxz = THREE.MathUtils.lerp(1.12, 0.94, p);
+      this.root.scale.set(sxz * this._squashIntensity, sy, sxz * this._squashIntensity);
+    } else {
+      const p = (u - 0.55) / (1 - 0.55);
+      const s = THREE.MathUtils.lerp(1.08, 1, p);
+      this.root.scale.set(s, s, s);
+    }
+    if (u >= 1) {
+      this.root.scale.set(1, 1, 1);
+      this._squashDur = 0;
+    }
   }
 
   /**

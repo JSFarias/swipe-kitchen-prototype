@@ -37,14 +37,25 @@ function simulateTrajectoryPoints(start, vel0, maxTime, step) {
   return pts;
 }
 
-function createSplashBurst(scene, position) {
+/**
+ * @param {'ground'|'wall'|'face'} variant
+ * @param {{ normal?: THREE.Vector3 }} opts
+ */
+function createSplash(scene, position, variant, opts = {}) {
   const group = new THREE.Group();
-  group.name = 'Splash';
-  const colors = [0xf4d35e, 0xc49a6c, 0x8b5a2b, 0xe8f0dc];
-  const n = 18;
+  group.name = `Splash_${variant}`;
+  const n = variant === 'face' ? 24 : 20;
+  const colors =
+    variant === 'face'
+      ? [0xc45c48, 0xf0c896, 0x8b4513, 0xe8dcc4, 0xd4a574]
+      : [0xf4d35e, 0xc49a6c, 0x8b5a2b, 0xe8f0dc];
   const data = [];
   for (let i = 0; i < n; i++) {
-    const geo = new THREE.SphereGeometry(0.05 + Math.random() * 0.07, 6, 6);
+    const geo = new THREE.SphereGeometry(
+      0.045 + Math.random() * (variant === 'face' ? 0.09 : 0.07),
+      6,
+      6,
+    );
     const mat = new THREE.MeshBasicMaterial({
       color: colors[i % colors.length],
       transparent: true,
@@ -52,11 +63,34 @@ function createSplashBurst(scene, position) {
       depthWrite: false,
     });
     const m = new THREE.Mesh(geo, mat);
-    const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.2, Math.random() - 0.5).normalize();
+    let dir;
+    if (variant === 'ground') {
+      dir = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.5,
+        0.5 + Math.random() * 0.65,
+        (Math.random() - 0.5) * 0.5,
+      ).normalize();
+    } else if (variant === 'wall' && opts.normal) {
+      const nx = opts.normal.x;
+      const ny = opts.normal.y;
+      const nz = opts.normal.z;
+      dir = new THREE.Vector3(
+        nx + (Math.random() - 0.5) * 0.55,
+        ny + (Math.random() - 0.5) * 0.4,
+        nz + (Math.random() - 0.5) * 0.55,
+      ).normalize();
+    } else {
+      dir = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.4,
+        0.1 + Math.random() * 0.45,
+        0.65 + Math.random() * 0.45,
+      ).normalize();
+    }
+    const sp = variant === 'face' ? 2.8 + Math.random() * 4 : 2.2 + Math.random() * 4.2;
     data.push({
       mesh: m,
-      vel: dir.multiplyScalar(2 + Math.random() * 4),
-      life: 0.55 + Math.random() * 0.2,
+      vel: dir.multiplyScalar(sp),
+      life: (variant === 'face' ? 0.65 : 0.52) + Math.random() * 0.22,
     });
     m.position.copy(position);
     group.add(m);
@@ -101,6 +135,7 @@ export class SlingshotController {
    * @param {import('./customerManager.js').CustomerManager} o.customerManager
    * @param {import('./gameCore.js').GameSession} o.gameSession
    * @param {import('./floatingBonusText.js').FloatingBonusLayer} [o.floatingLayer]
+   * @param {{ screenShake?: import('./juiceSystems.js').ScreenShake, coinFlyout?: import('./juiceSystems.js').CoinFlyoutLayer, coinsHudEl?: HTMLElement | null }} [o.juice]
    * @param {() => void} [o.onSettled] after projectile ends / burger returns to plate
    */
   constructor(o) {
@@ -113,6 +148,7 @@ export class SlingshotController {
     this.customerManager = o.customerManager;
     this.gameSession = o.gameSession;
     this.floatingLayer = o.floatingLayer ?? null;
+    this.juice = o.juice ?? {};
     this._onSettled = typeof o.onSettled === 'function' ? o.onSettled : null;
 
     this.counterBox = getCounterAabb();
@@ -133,9 +169,9 @@ export class SlingshotController {
     this._bandLine.frustumCulled = false;
     this.scene.add(this._bandLine);
 
-    this._trailGeom = new THREE.BufferGeometry();
-    this._trailLine = new THREE.Line(
-      this._trailGeom,
+    this._aimDashGeom = new THREE.BufferGeometry();
+    this._aimDashLine = new THREE.Line(
+      this._aimDashGeom,
       new THREE.LineDashedMaterial({
         color: 0xffffff,
         dashSize: 0.14,
@@ -145,13 +181,27 @@ export class SlingshotController {
         depthWrite: false,
       }),
     );
-    this._trailLine.visible = false;
-    this._trailLine.frustumCulled = false;
-    this.scene.add(this._trailLine);
+    this._aimDashLine.visible = false;
+    this._aimDashLine.frustumCulled = false;
+    this.scene.add(this._aimDashLine);
 
-    /** @type {null | { mesh: THREE.Group, pos: THREE.Vector3, vel: THREE.Vector3, r: number, stuckT: number, slide: boolean, fadeMats: THREE.Material[], life: number }} */
+    this._flightTrailGeom = new THREE.BufferGeometry();
+    this._flightTrailMat = new THREE.LineBasicMaterial({
+      color: 0xffdd88,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    });
+    this._flightTrailLine = new THREE.Line(this._flightTrailGeom, this._flightTrailMat);
+    this._flightTrailLine.visible = false;
+    this._flightTrailLine.frustumCulled = false;
+    this.scene.add(this._flightTrailLine);
+    /** @type {number[]} */
+    this._flightTrailPts = [];
+
+    /** @type {null | { mesh: THREE.Group, pos: THREE.Vector3, vel: THREE.Vector3, r: number, stuckT: number, slide: boolean, fadeMats: THREE.Material[], life: number, thrownStack: string[] }} */
     this._proj = null;
-    /** @type {null | ReturnType<typeof createSplashBurst>} */
+    /** @type {null | ReturnType<typeof createSplash>} */
     this._splash = null;
 
     this._onPointerDown = (e) => {
@@ -167,7 +217,7 @@ export class SlingshotController {
       this._screenToWorldOnPlane(e.clientX, e.clientY, this._anchorWorld.y, this._pullWorld);
       this._refreshAimLines();
       this._bandLine.visible = true;
-      this._trailLine.visible = true;
+      this._aimDashLine.visible = true;
     };
 
     this._onPointerMove = (e) => {
@@ -233,9 +283,12 @@ export class SlingshotController {
     this._bandGeom.dispose();
     this._bandLine.material.dispose();
     this.scene.remove(this._bandLine);
-    this._trailGeom.dispose();
-    this._trailLine.material.dispose();
-    this.scene.remove(this._trailLine);
+    this._aimDashGeom.dispose();
+    this._aimDashLine.material.dispose();
+    this.scene.remove(this._aimDashLine);
+    this._flightTrailGeom.dispose();
+    this._flightTrailMat.dispose();
+    this.scene.remove(this._flightTrailLine);
     if (this._proj) {
       this._proj.mesh.removeFromParent();
       disposeObject3D(this._proj.mesh);
@@ -279,15 +332,15 @@ export class SlingshotController {
     if (vel.length() > maxSpeed) vel.setLength(maxSpeed);
 
     const pts = simulateTrajectoryPoints(this._anchorWorld.clone(), vel, 2.8, 1 / 60);
-    this._trailGeom.setFromPoints(pts);
-    this._trailGeom.attributes.position.needsUpdate = true;
-    this._trailLine.computeLineDistances();
+    this._aimDashGeom.setFromPoints(pts);
+    this._aimDashGeom.attributes.position.needsUpdate = true;
+    this._aimDashLine.computeLineDistances();
   }
 
   _cancelAim() {
     this.mode = 'idle';
     this._bandLine.visible = false;
-    this._trailLine.visible = false;
+    this._aimDashLine.visible = false;
   }
 
   /**
@@ -307,8 +360,21 @@ export class SlingshotController {
     this.stackView.stackRoot.visible = false;
 
     this._bandLine.visible = false;
-    this._trailLine.visible = false;
+    this._aimDashLine.visible = false;
     this.mode = 'busy';
+
+    this._flightTrailPts.length = 0;
+    this._flightTrailPts.push(
+      this._anchorWorld.x,
+      this._anchorWorld.y,
+      this._anchorWorld.z,
+    );
+    this._flightTrailGeom.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(this._flightTrailPts, 3),
+    );
+    this._flightTrailGeom.setDrawRange(0, 1);
+    this._flightTrailLine.visible = true;
 
     const fadeMats = [];
     mesh.traverse((obj) => {
@@ -339,18 +405,38 @@ export class SlingshotController {
       disposeObject3D(this._proj.mesh);
       this._proj = null;
     }
+    this._flightTrailPts.length = 0;
+    this._flightTrailLine.visible = false;
     this.stackView.stackRoot.visible = true;
     this.mode = 'idle';
     this._onSettled?.();
   }
 
+  _updateFlightTrail(pos) {
+    const buf = this._flightTrailPts;
+    buf.push(pos.x, pos.y, pos.z);
+    const maxPts = 14;
+    while (buf.length > maxPts * 3) {
+      buf.splice(0, 3);
+    }
+    const attr = new THREE.Float32BufferAttribute(new Float32Array(buf), 3);
+    this._flightTrailGeom.setAttribute('position', attr);
+    this._flightTrailGeom.setDrawRange(0, buf.length / 3);
+    this._flightTrailGeom.computeBoundingSphere();
+  }
+
   /**
    * @param {THREE.Vector3} pos
-   * @param {boolean} [breakCombo=true] ground/wall splats break combo; wrong-customer splat does not (already broken in resolve).
+   * @param {boolean} [breakCombo=true]
+   * @param {'ground'|'wall'|'face'} [variant='ground']
+   * @param {THREE.Vector3 | null} [wallNormal]
    */
-  _splatGround(pos, breakCombo = true) {
+  _splatAt(pos, breakCombo = true, variant = 'ground', wallNormal = null) {
     if (breakCombo) this.gameSession.onComboBreakEvent();
-    this._splash = createSplashBurst(this.scene, pos);
+    if (variant === 'ground') this.juice.screenShake?.trigger(0.065);
+    if (variant === 'wall') this.juice.screenShake?.trigger(0.055);
+    if (variant === 'face') this.juice.screenShake?.trigger(0.22);
+    this._splash = createSplash(this.scene, pos, variant, { normal: wallNormal ?? undefined });
     this._finishThrow();
   }
 
@@ -384,6 +470,7 @@ export class SlingshotController {
     }
 
     if (p.slide) {
+      p.mesh.scale.setScalar(1);
       p.pos.y -= 0.55 * dt;
       const fade = Math.min(1, p.stuckT / 1.05);
       for (const m of p.fadeMats) {
@@ -399,6 +486,7 @@ export class SlingshotController {
     }
 
     if (p.stuckT > 0 && !p.slide) {
+      p.mesh.scale.setScalar(1);
       p.stuckT += dt;
       p.mesh.position.copy(p.pos);
       if (p.stuckT > 0.45) {
@@ -410,6 +498,11 @@ export class SlingshotController {
 
     integrateAir(p.vel, dt);
     p.pos.addScaledVector(p.vel, dt);
+
+    const speed = p.vel.length();
+    const stretch = 1 + Math.min(0.14, speed * 0.005);
+    p.mesh.scale.setScalar(stretch);
+    this._updateFlightTrail(p.pos);
 
     const colliders = this.customerManager
       .getWorldColliders()
@@ -427,26 +520,66 @@ export class SlingshotController {
           hitEntry.view.root.getWorldPosition(hitAnchor);
           hitAnchor.y += 2.05;
         }
+        if (hitEntry?.customer.orderMatches(stack)) {
+          this.customerManager.notifyCorrectHit(c.index);
+        }
         const result = this.gameSession.resolveThrowVsCustomer(stack, c.index, this.customerManager);
         if (result.correct) {
+          const coinPos = hitAnchor.clone();
+          coinPos.y -= 0.5;
+          this.juice.coinFlyout?.spawnBurst(
+            coinPos,
+            this.camera,
+            this.juice.coinsHudEl ?? null,
+            result.earned ?? 1,
+          );
           if (this.floatingLayer && hitEntry) {
-            if (result.fast) this.floatingLayer.spawn(hitAnchor.clone(), 'FAST!', '#8fffac');
+            if (result.fast) {
+              this.floatingLayer.spawn(hitAnchor.clone(), 'FAST!', '#8fffac', {
+                className: 'floating-bonus-text--pop',
+                riseSpeed: 1.25,
+              });
+            }
             if (result.insane) {
               const w = hitAnchor.clone();
               w.y += 0.38;
-              this.floatingLayer.spawn(w, 'INSANE!', '#ff9cf9');
+              this.floatingLayer.spawn(w, 'INSANE!', '#ff9cf9', {
+                className: 'floating-bonus-text--pop',
+                riseSpeed: 1.25,
+              });
+            }
+            if (result.comboAfter != null && result.comboAfter >= 2) {
+              this.floatingLayer.spawn(
+                hitAnchor.clone().add(new THREE.Vector3(0, -0.32, 0)),
+                `COMBO ×${result.comboAfter}!`,
+                '#ffd84a',
+                {
+                  className: 'floating-bonus-text--combo',
+                  riseSpeed: 1.4,
+                  duration: 1.5,
+                },
+              );
             }
           }
+          this.juice.screenShake?.trigger(0.05);
           this._finishThrow();
         } else {
-          this.customerManager.notifyHit(c.index);
-          this._splatGround(p.pos.clone().setY(Math.max(p.r * 0.4, p.pos.y)), false);
+          const facePos = new THREE.Vector3();
+          if (hitEntry) {
+            hitEntry.view.root.getWorldPosition(facePos);
+            facePos.y += 1.18;
+          } else {
+            facePos.copy(p.pos);
+          }
+          this.customerManager.notifyWrongHit(c.index);
+          this._splatAt(facePos, false, 'face');
         }
         return;
       }
     }
 
     if (sphereVsAabb(p.pos, p.r, this.counterBox)) {
+      p.mesh.scale.setScalar(1);
       p.vel.set(0, 0, 0);
       p.pos.x = THREE.MathUtils.clamp(p.pos.x, this.counterBox.min.x + p.r * 0.85, this.counterBox.max.x - p.r * 0.85);
       p.pos.z = THREE.MathUtils.clamp(p.pos.z, this.counterBox.min.z + p.r * 0.5, this.counterBox.max.z - p.r * 0.5);
@@ -459,14 +592,19 @@ export class SlingshotController {
 
     if (resolveWalls(p.pos, p.r, _wallN)) {
       if (!this._tryWallBounce(p.vel, _wallN)) {
-        this._splatGround(p.pos.clone().setY(Math.max(p.r + 0.02, p.pos.y)));
+        this._splatAt(
+          p.pos.clone().setY(Math.max(p.r + 0.02, p.pos.y)),
+          true,
+          'wall',
+          _wallN.clone(),
+        );
         return;
       }
     }
 
     if (hitsFloor(p.pos, p.r)) {
       p.pos.y = p.r + 0.02;
-      this._splatGround(p.pos.clone());
+      this._splatAt(p.pos.clone(), true, 'ground');
     }
 
     p.mesh.position.copy(p.pos);

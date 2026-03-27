@@ -1,0 +1,154 @@
+/**
+ * Screen shake, coin flyout to HUD, helpers.
+ */
+
+import * as THREE from 'three';
+
+export class ScreenShake {
+  /**
+   * @param {THREE.PerspectiveCamera} camera
+   * @param {THREE.Vector3} basePosition world-space rest position
+   */
+  constructor(camera, basePosition) {
+    this.camera = camera;
+    this.basePosition = basePosition.clone();
+    this._phase = 0;
+    this._strength = 0;
+    this._duration = 0;
+    this._elapsed = 0;
+  }
+
+  /** @param {number} amount roughly 0.04–0.25 */
+  trigger(amount) {
+    this._strength = Math.max(this._strength, amount);
+    this._duration = Math.max(this._duration, amount > 0.14 ? 0.42 : 0.28);
+    this._elapsed = 0;
+  }
+
+  setBase(position) {
+    this.basePosition.copy(position);
+  }
+
+  /**
+   * @param {number} dt
+   */
+  update(dt) {
+    if (this._duration <= 0 || this._strength <= 0) {
+      this.camera.position.copy(this.basePosition);
+      return;
+    }
+    this._elapsed += dt;
+    this._phase += dt * 55;
+    const u = Math.min(1, this._elapsed / this._duration);
+    const env = (1 - u) * (1 - u);
+    const s = this._strength * env;
+    this.camera.position.set(
+      this.basePosition.x + Math.sin(this._phase * 1.7) * s * 0.85,
+      this.basePosition.y + Math.cos(this._phase * 2.1) * s * 0.35,
+      this.basePosition.z + Math.cos(this._phase * 1.3) * s * 0.75,
+    );
+    if (u >= 1) {
+      this._strength = 0;
+      this._duration = 0;
+      this._elapsed = 0;
+      this.camera.position.copy(this.basePosition);
+    }
+  }
+}
+
+function projectWorldToStage(world, camera, stageRect) {
+  const v = world.clone().project(camera);
+  const x = (v.x * 0.5 + 0.5) * stageRect.width;
+  const y = (-v.y * 0.5 + 0.5) * stageRect.height;
+  return { x, y, z: v.z };
+}
+
+/**
+ * Gold coin tokens flying to the coins HUD (ease-out cubic).
+ */
+export class CoinFlyoutLayer {
+  /**
+   * @param {HTMLElement} stageEl
+   */
+  constructor(stageEl) {
+    this.stage = stageEl;
+    /** @type {{ el: HTMLElement, delay: number, t: number, dur: number, sx: number, sy: number, ex: number, ey: number }[]} */
+    this._items = [];
+    this._root = document.createElement('div');
+    this._root.id = 'coin-flyout-layer';
+    this._root.style.cssText =
+      'position:absolute;inset:0;pointer-events:none;z-index:19;overflow:hidden;';
+    stageEl.appendChild(this._root);
+  }
+
+  /**
+   * @param {THREE.Vector3} worldStart
+   * @param {THREE.Camera} camera
+   * @param {HTMLElement | null} targetEl e.g. #coins-display
+   * @param {number} coinCount visual coins (clamped)
+   */
+  spawnBurst(worldStart, camera, targetEl, coinCount) {
+    const rect = this.stage.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const stageRect = rect;
+    const start = projectWorldToStage(worldStart, camera, stageRect);
+    if (start.z > 1) return;
+
+    let ex = stageRect.width * 0.12;
+    let ey = stageRect.height * 0.06;
+    if (targetEl) {
+      const tr = targetEl.getBoundingClientRect();
+      ex = tr.left + tr.width / 2 - rect.left;
+      ey = tr.top + tr.height / 2 - rect.top;
+    }
+
+    const n = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(Math.max(1, coinCount)))));
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('div');
+      el.className = 'coin-flyout';
+      el.textContent = '🪙';
+      el.setAttribute('aria-hidden', 'true');
+      this._root.appendChild(el);
+      const jitter = 22;
+      const sx = start.x + (Math.random() - 0.5) * jitter;
+      const sy = start.y + (Math.random() - 0.5) * jitter;
+      this._items.push({
+        el,
+        delay: i * 0.055,
+        t: 0,
+        dur: 0.52 + i * 0.03,
+        sx,
+        sy,
+        ex,
+        ey,
+      });
+    }
+  }
+
+  /**
+   * @param {number} dt
+   */
+  update(dt) {
+    for (let i = this._items.length - 1; i >= 0; i--) {
+      const it = this._items[i];
+      if (it.delay > 0) {
+        it.delay -= dt;
+        continue;
+      }
+      it.t += dt;
+      const u = Math.min(1, it.t / it.dur);
+      const e = 1 - (1 - u) ** 3;
+      const x = it.sx + (it.ex - it.sx) * e;
+      const y = it.sy + (it.ey - it.sy) * e;
+      const sc = 0.75 + 0.45 * Math.sin(u * Math.PI);
+      it.el.style.left = `${x}px`;
+      it.el.style.top = `${y}px`;
+      it.el.style.transform = `translate(-50%, -50%) scale(${sc})`;
+      it.el.style.opacity = String(u < 0.88 ? 1 : (1 - u) / 0.12);
+      if (u >= 1) {
+        it.el.remove();
+        this._items.splice(i, 1);
+      }
+    }
+  }
+}

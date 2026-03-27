@@ -1,8 +1,12 @@
 /**
- * Screen-space floating labels tied to world positions (fade + rise).
+ * Screen-space floating labels tied to world positions (rise + fade).
  */
 
 import * as THREE from 'three';
+
+/**
+ * @typedef {{ duration?: number, riseSpeed?: number, className?: string }} FloatTextOpts
+ */
 
 export class FloatingBonusLayer {
   /**
@@ -12,7 +16,7 @@ export class FloatingBonusLayer {
   constructor(stageEl, camera) {
     this.stage = stageEl;
     this.camera = camera;
-    /** @type {{ el: HTMLElement, world: THREE.Vector3, rise: number, age: number, duration: number }[]} */
+    /** @type {{ el: HTMLElement, world: THREE.Vector3, rise: number, age: number, duration: number, riseSpeed: number, screenDriftY: number }[]} */
     this._items = [];
     this._root = document.createElement('div');
     this._root.id = 'floating-bonus-layer';
@@ -26,10 +30,11 @@ export class FloatingBonusLayer {
    * @param {THREE.Vector3} worldPosition
    * @param {string} text
    * @param {string} [color]
+   * @param {FloatTextOpts} [opts]
    */
-  spawn(worldPosition, text, color = '#ffffff') {
+  spawn(worldPosition, text, color = '#ffffff', opts = {}) {
     const el = document.createElement('div');
-    el.className = 'floating-bonus-text';
+    el.className = ['floating-bonus-text', opts.className].filter(Boolean).join(' ');
     el.textContent = text;
     el.style.color = color;
     this._root.appendChild(el);
@@ -38,7 +43,9 @@ export class FloatingBonusLayer {
       world: worldPosition.clone(),
       rise: 0,
       age: 0,
-      duration: 1.2,
+      duration: opts.duration ?? 1.35,
+      riseSpeed: opts.riseSpeed ?? 1.15,
+      screenDriftY: 0,
     });
   }
 
@@ -54,13 +61,14 @@ export class FloatingBonusLayer {
     for (let i = this._items.length - 1; i >= 0; i--) {
       const it = this._items[i];
       it.age += dt;
-      it.rise += 0.95 * dt;
+      it.rise += it.riseSpeed * dt;
+      it.screenDriftY -= 42 * dt;
 
       const v = new THREE.Vector3(it.world.x, it.world.y + it.rise, it.world.z);
       v.project(this.camera);
 
       const x = (v.x * 0.5 + 0.5) * w;
-      const y = (-v.y * 0.5 + 0.5) * h;
+      const y = (-v.y * 0.5 + 0.5) * h + it.screenDriftY;
 
       const u = it.age / it.duration;
       const opacity = Math.max(0, 1 - u * u);

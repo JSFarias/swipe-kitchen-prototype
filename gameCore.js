@@ -74,10 +74,10 @@ export class GameSession {
    * @param {number} baseReward from customer mood (e.g. 2 happy / 1 other)
    * @param {number} [extraBonuses] additional flat coins (not multiplied)
    * @param {{ fast?: boolean, insane?: boolean }} [throwBonuses] only for successful throw hits
-   * @returns {number} coins earned this delivery
+   * @returns {{ earned: number, comboAfter: number }}
    */
   applyCorrectDelivery(baseReward, extraBonuses = 0, throwBonuses = {}) {
-    if (this.gameOver) return 0;
+    if (this.gameOver) return { earned: 0, comboAfter: this.combo };
     const mult = Math.min(COMBO_MAX, Math.max(1, this.combo));
     const maxComboBonus = mult === COMBO_MAX ? BONUS_AT_MAX_COMBO : 0;
     const tb =
@@ -87,7 +87,7 @@ export class GameSession {
     this.totalCoins += earned;
     this.timeLeft += TIME_BONUS_CORRECT_DELIVERY;
     this.combo = Math.min(COMBO_MAX, this.combo + 1);
-    return earned;
+    return { earned, comboAfter: this.combo };
   }
 
   /**
@@ -95,7 +95,7 @@ export class GameSession {
    * @param {string[]} thrownStack
    * @param {number} entryIndex index into customerManager.entries
    * @param {import('./customerManager.js').CustomerManager} customerManager
-   * @returns {{ correct: boolean, fast?: boolean, insane?: boolean }}
+   * @returns {{ correct: boolean, fast?: boolean, insane?: boolean, earned?: number, comboAfter?: number }}
    */
   resolveThrowVsCustomer(thrownStack, entryIndex, customerManager) {
     const entry = customerManager.entries[entryIndex];
@@ -116,10 +116,10 @@ export class GameSession {
       }
 
       const base = entry.customer.getCoinReward();
-      this.applyCorrectDelivery(base, 0, { fast, insane });
+      const { earned, comboAfter } = this.applyCorrectDelivery(base, 0, { fast, insane });
       customerManager.removeAt(entryIndex);
       customerManager.spawnOneIfSpace();
-      return { correct: true, fast, insane };
+      return { correct: true, fast, insane, earned, comboAfter };
     }
 
     this.onComboBreakEvent();

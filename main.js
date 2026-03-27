@@ -11,6 +11,7 @@ import { ROOM, ZONES, halfWidthAtZ, xLeftAtZ, xRightAtZ } from './roomConstants.
 import { SlingshotController } from './slingshot.js';
 import { GameSession } from './gameCore.js';
 import { FloatingBonusLayer } from './floatingBonusText.js';
+import { ScreenShake, CoinFlyoutLayer } from './juiceSystems.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -325,6 +326,8 @@ function init() {
   refreshHud();
 
   const floatingLayer = new FloatingBonusLayer(stage, camera);
+  const screenShake = new ScreenShake(camera, new THREE.Vector3(0, 8, 10));
+  const coinFlyout = new CoinFlyoutLayer(stage);
 
   const slingshot = new SlingshotController({
     camera,
@@ -336,6 +339,11 @@ function init() {
     customerManager,
     gameSession,
     floatingLayer,
+    juice: {
+      screenShake,
+      coinFlyout,
+      coinsHudEl: coinsEl,
+    },
     onSettled: refreshHud,
   });
 
@@ -390,8 +398,19 @@ function init() {
       if (statusEl) statusEl.textContent = 'No customer wants that order — check stacks above them.';
       return;
     }
-    gameSession.applyCorrectDelivery(served.baseReward, 0, {});
+    const { earned, comboAfter } = gameSession.applyCorrectDelivery(served.baseReward, 0, {});
     gameSession.clearBurgerTiming();
+    coinFlyout.spawnBurst(served.coinWorld, camera, coinsEl, earned);
+    if (comboAfter >= 2) {
+      const w = served.coinWorld.clone();
+      w.y += 0.55;
+      floatingLayer.spawn(w, `COMBO ×${comboAfter}!`, '#ffd84a', {
+        className: 'floating-bonus-text--combo',
+        riseSpeed: 1.4,
+        duration: 1.5,
+      });
+    }
+    screenShake.trigger(0.045);
     burger.reset();
     stackView.clearFeedbacks();
     stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
@@ -429,6 +448,8 @@ function init() {
     customerManager.update(dt);
     slingshot.update(dt);
     floatingLayer.update(dt);
+    coinFlyout.update(dt);
+    screenShake.update(dt);
     renderer.render(scene, camera);
   }
 

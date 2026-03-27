@@ -78,6 +78,7 @@ export class CustomerManager {
   update(dt) {
     for (const e of this.entries) {
       e.customer.update(dt);
+      e.view.updateSquash(dt);
       e.view.updateHitFlash(dt);
       e.view.syncFromCustomer();
       e.view.updateIdle(dt);
@@ -110,22 +111,41 @@ export class CustomerManager {
     if (e) e.view.playHitFlash();
   }
 
+  /** Wrong-order splat: flash + big squash. */
+  notifyWrongHit(index) {
+    const e = this.entries[index];
+    if (!e) return;
+    e.view.playHitSquash('hard');
+    e.view.playHitFlash();
+  }
+
+  /** Correct delivery hit feedback. */
+  notifyCorrectHit(index) {
+    const e = this.entries[index];
+    if (e) e.view.playHitSquash('light');
+  }
+
   /**
    * Exact match required; left-to-right slot priority.
    * @param {string[]} playerStack
-   * @returns {{ baseReward: number } | null}
+   * @returns {{ baseReward: number, coinWorld: THREE.Vector3 } | null}
    */
   tryServe(playerStack) {
+    const p = new THREE.Vector3();
     const order = this.entries
       .map((e, i) => ({ i, slot: e.customer.slotIndex }))
       .sort((a, b) => a.slot - b.slot);
     for (const { i } of order) {
-      const { customer } = this.entries[i];
+      const entry = this.entries[i];
+      const { customer } = entry;
       if (customer.orderMatches(playerStack)) {
+        entry.view.root.getWorldPosition(p);
+        p.y += 1.45;
+        const coinWorld = p.clone();
         const baseReward = customer.getCoinReward();
         this.removeAt(i);
         this.spawnOneIfSpace();
-        return { baseReward };
+        return { baseReward, coinWorld };
       }
     }
     return null;
