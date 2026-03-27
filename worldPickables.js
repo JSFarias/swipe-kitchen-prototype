@@ -57,12 +57,12 @@ export class WorldPickables {
     this.group.add(rightShelf);
 
     /* Wide spacing so large piles do not overlap */
-    this._addIngredientPile('lettuce', -1.88, 0.32);
-    this._addIngredientPile('tomato', -1.88, -0.48);
+    this._addIngredientPile('lettuce', -1.88, 0.5);
+    this._addIngredientPile('tomato', -1.88, -0.5);
 
-    this._addIngredientPile('cheese', 1.88, 0.32);
-    this._addIngredientPile('meat', 1.88, -0.12);
-    this._addIngredientPile('bun', 1.88, -0.55);
+    this._addIngredientPile('cheese', 1.88, 2.5);
+    this._addIngredientPile('meat', 1.88, -0);
+    this._addIngredientPile('bun', 1.88, -2.5);
 
     const trashMat = new THREE.MeshStandardMaterial({
       color: 0x3a3a3a,
@@ -74,8 +74,8 @@ export class WorldPickables {
       trashMat,
     );
     const trashZ = 1.38;
-    const trashX = 0.55;
-    trash.position.set(trashX, 0.27 * 2, trashZ);
+    const trashX = 0;
+    trash.position.set(trashX, 3, trashZ);
     trash.castShadow = true;
     trash.receiveShadow = true;
     trash.userData.isTrash = true;
