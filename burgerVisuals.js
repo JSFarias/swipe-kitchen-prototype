@@ -139,7 +139,7 @@ function makeCheeseMesh(h, color) {
   return mesh;
 }
 
-function disposeObject3D(root) {
+export function disposeObject3D(root) {
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) {
       o.geometry?.dispose();
@@ -148,6 +148,31 @@ function disposeObject3D(root) {
       else m?.dispose();
     }
   });
+}
+
+/**
+ * Vertical mini-burger for order display (e.g. above customers). Caller owns disposal.
+ * @param {string[]} order ingredient ids
+ * @param {number} scale uniform scale vs. player stack
+ */
+export function buildOrderPreviewGroup(order, scale = 0.36) {
+  const root = new THREE.Group();
+  root.name = 'OrderPreview';
+  let y = 0;
+  const gap = STACK_GAP * scale;
+  order.forEach((type) => {
+    const rawH = getLayerHeight(type);
+    const h = rawH * scale;
+    const layer = new THREE.Group();
+    const mesh = createIngredientMesh(type);
+    mesh.scale.setScalar(scale);
+    layer.add(mesh);
+    y += h / 2;
+    layer.position.y = y;
+    y += h / 2 + gap;
+    root.add(layer);
+  });
+  return root;
 }
 
 /**

@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { Burger } from './burgerData.js';
 import { createPlate, BurgerStackView } from './burgerVisuals.js';
+import { CustomerManager } from './customerManager.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -301,6 +302,9 @@ function init() {
 
   scene.add(buildRestaurantRoom());
 
+  const customerManager = new CustomerManager(scene);
+  customerManager.fillToMax();
+
   // --- Player area: plate + burger stack (data vs visuals separated) ---
   const burger = new Burger();
   const playArea = new THREE.Group();
@@ -320,6 +324,13 @@ function init() {
 
   const clock = new THREE.Clock();
   const statusEl = document.getElementById('burger-status');
+  const coinsEl = document.getElementById('coins-display');
+  let totalCoins = 0;
+
+  function refreshCoins() {
+    if (coinsEl) coinsEl.textContent = `Coins: ${totalCoins}`;
+  }
+  refreshCoins();
 
   function refreshStatus() {
     if (!statusEl) return;
@@ -369,6 +380,24 @@ function init() {
     refreshStatus();
   });
 
+  document.getElementById('serve-btn')?.addEventListener('click', () => {
+    if (!burger.isComplete()) {
+      refreshStatus();
+      return;
+    }
+    const reward = customerManager.tryServe(burger.getStack());
+    if (reward === null) {
+      if (statusEl) statusEl.textContent = 'No customer wants that order — check stacks above them.';
+      return;
+    }
+    totalCoins += reward;
+    refreshCoins();
+    burger.reset();
+    stackView.clearFeedbacks();
+    stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
+    refreshStatus();
+  });
+
   /**
    * Resize renderer and camera to match the 9:16 stage element (CSS handles letterboxing).
    */
@@ -391,6 +420,7 @@ function init() {
     requestAnimationFrame(tick);
     const dt = clock.getDelta();
     stackView.update(dt);
+    customerManager.update(dt);
     renderer.render(scene, camera);
   }
 
