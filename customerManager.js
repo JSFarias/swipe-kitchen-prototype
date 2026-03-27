@@ -1,5 +1,5 @@
 /**
- * Spawns and updates customers (data + views), optional serve matching.
+ * Spawns and updates customers (data + views), door entrance walk-in.
  */
 
 import * as THREE from 'three';
@@ -10,15 +10,21 @@ import {
   pickRandomFreeSlot,
 } from './customerData.js';
 import { CustomerView } from './customerVisuals.js';
+import { ROOM } from './roomConstants.js';
 
 /** Left / center / right slots in the back (customer) zone. */
 const SLOT_X = [-1.42, 0, 1.42];
 const SLOT_Z = -3.22;
+const SPAWN_Z = ROOM.zBack - 0.95;
 
 export class CustomerManager {
-  /** @param {import('three').Scene} scene */
-  constructor(scene) {
+  /**
+   * @param {import('three').Scene} scene
+   * @param {{ setOpen: (t: number) => void } | null} [backDoor]
+   */
+  constructor(scene, backDoor = null) {
     this.scene = scene;
+    this.backDoor = backDoor;
     this.group = new THREE.Group();
     this.group.name = 'Customers';
     scene.add(this.group);
@@ -27,11 +33,19 @@ export class CustomerManager {
     this.usedSlots = new Set();
     /** @type {{ customer: Customer, view: CustomerView }[]} */
     this.entries = [];
-    this._spawnCooldown = 0;
+
+    /** @type {{ customer: Customer, view: CustomerView, slotIndex: number }[]} */
+    this._walkQueue = [];
+    /** @type {null | { customer: Customer, view: CustomerView, slotIndex: number, phase: string, t: number }} */
+    this._activeWalk = null;
+  }
+
+  _totalOccupied() {
+    return this.entries.length + this._walkQueue.length + (this._activeWalk ? 1 : 0);
   }
 
   spawnOne() {
-    if (this.entries.length >= CUSTOMER_MAX_ACTIVE) return;
+    if (this._totalOccupied() >= CUSTOMER_MAX_ACTIVE) return;
     const slot = pickRandomFreeSlot(this.usedSlots);
     if (slot === null) return;
 
@@ -43,12 +57,13 @@ export class CustomerManager {
     });
     const view = new CustomerView(customer);
     view.syncFromCustomer();
+    view.root.position.set(SLOT_X[slot], 0, SPAWN_Z);
     this.group.add(view.root);
-    this.entries.push({ customer, view });
+    this._walkQueue.push({ customer, view, slotIndex: slot });
   }
 
   fillToMax() {
-    while (this.entries.length < CUSTOMER_MAX_ACTIVE) {
+    while (this._totalOccupied() < CUSTOMER_MAX_ACTIVE) {
       this.spawnOne();
     }
   }
@@ -65,9 +80,8 @@ export class CustomerManager {
     this.entries.splice(index, 1);
   }
 
-  /** After a delivery or random leave, refill one slot immediately if below cap. */
   spawnOneIfSpace() {
-    if (this.entries.length < CUSTOMER_MAX_ACTIVE) {
+    if (this._totalOccupied() < CUSTOMER_MAX_ACTIVE) {
       this.spawnOne();
     }
   }
@@ -76,6 +90,8 @@ export class CustomerManager {
    * @param {number} dt
    */
   update(dt) {
+    this._updateWalkIn(dt);
+
     for (const e of this.entries) {
       e.customer.update(dt);
       e.view.updateSquash(dt);
@@ -83,13 +99,51 @@ export class CustomerManager {
       e.view.syncFromCustomer();
       e.view.updateIdle(dt);
     }
+  }
 
-    if (this.entries.length < CUSTOMER_MAX_ACTIVE) {
-      this._spawnCooldown -= dt;
-      if (this._spawnCooldown <= 0) {
-        this.spawnOne();
-        this._spawnCooldown = 2.2;
+  /**
+   * @param {number} dt
+   */
+  _updateWalkIn(dt) {
+    if (this._activeWalk) {
+      const w = this._activeWalk;
+      if (w.phase === 'door_open') {
+        w.t += dt;
+        const u = Math.min(1, w.t / 0.34);
+        this.backDoor?.setOpen(u);
+        if (w.t >= 0.34) {
+          w.phase = 'walk';
+          w.t = 0;
+        }
+      } else if (w.phase === 'walk') {
+        const targetZ = SLOT_Z;
+        const speed = 4.2;
+        w.view.root.position.z += speed * dt;
+        if (w.view.root.position.z >= targetZ) {
+          w.view.root.position.z = targetZ;
+          w.phase = 'door_close';
+          w.t = 0;
+        }
+      } else if (w.phase === 'door_close') {
+        w.t += dt;
+        const u = Math.max(0, 1 - w.t / 0.32);
+        this.backDoor?.setOpen(u);
+        if (w.t >= 0.32) {
+          this.backDoor?.setOpen(0);
+          this.entries.push({ customer: w.customer, view: w.view });
+          this._activeWalk = null;
+        }
       }
+    } else if (this._walkQueue.length > 0) {
+      const next = this._walkQueue.shift();
+      this._activeWalk = {
+        customer: next.customer,
+        view: next.view,
+        slotIndex: next.slotIndex,
+        phase: 'door_open',
+        t: 0,
+      };
+      this.backDoor?.setOpen(0);
     }
   }
 
@@ -125,29 +179,26 @@ export class CustomerManager {
     if (e) e.view.playHitSquash('light');
   }
 
-  /**
-   * Exact match required; left-to-right slot priority.
-   * @param {string[]} playerStack
-   * @returns {{ baseReward: number, coinWorld: THREE.Vector3 } | null}
-   */
-  tryServe(playerStack) {
-    const p = new THREE.Vector3();
-    const order = this.entries
-      .map((e, i) => ({ i, slot: e.customer.slotIndex }))
-      .sort((a, b) => a.slot - b.slot);
-    for (const { i } of order) {
-      const entry = this.entries[i];
-      const { customer } = entry;
-      if (customer.orderMatches(playerStack)) {
-        entry.view.root.getWorldPosition(p);
-        p.y += 1.45;
-        const coinWorld = p.clone();
-        const baseReward = customer.getCoinReward();
-        this.removeAt(i);
-        this.spawnOneIfSpace();
-        return { baseReward, coinWorld };
-      }
+  /** Play Again: remove all customers, queues, and refill. */
+  resetGame() {
+    for (const e of this.entries) {
+      this.group.remove(e.view.root);
+      e.view.dispose();
     }
-    return null;
+    this.entries.length = 0;
+    while (this._walkQueue.length) {
+      const w = this._walkQueue.pop();
+      this.group.remove(w.view.root);
+      w.view.dispose();
+    }
+    this._walkQueue.length = 0;
+    if (this._activeWalk) {
+      this.group.remove(this._activeWalk.view.root);
+      this._activeWalk.view.dispose();
+      this._activeWalk = null;
+    }
+    this.usedSlots.clear();
+    this.backDoor?.setOpen(0);
+    this.fillToMax();
   }
 }

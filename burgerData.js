@@ -2,7 +2,7 @@
  * Burger stacking rules (data only — no Three.js).
  */
 
-/** Canonical list of ingredient type ids used by the game. */
+/** Canonical stack ids (orders + internal state). */
 export const INGREDIENT_TYPES = [
   'bun_bottom',
   'bun_top',
@@ -19,11 +19,22 @@ export class Burger {
   }
 
   /**
-   * @param {string} type
+   * @param {string} type — use `bun` for unified bottom/top; or canonical ids.
    * @returns {{ ok: boolean, reason?: string }}
    */
   addIngredient(type) {
-    if (!INGREDIENT_TYPES.includes(type)) {
+    let resolved = type;
+    if (type === 'bun') {
+      if (this._ingredients.length === 0) {
+        resolved = 'bun_bottom';
+      } else if (this._isSealed()) {
+        return { ok: false, reason: 'already_complete' };
+      } else {
+        resolved = 'bun_top';
+      }
+    }
+
+    if (!INGREDIENT_TYPES.includes(resolved)) {
       return { ok: false, reason: 'unknown_type' };
     }
     if (this._ingredients.length >= 6) {
@@ -34,18 +45,18 @@ export class Burger {
     }
 
     if (this._ingredients.length === 0) {
-      if (type !== 'bun_bottom') {
+      if (resolved !== 'bun_bottom') {
         return { ok: false, reason: 'need_bun_bottom_first' };
       }
-    } else if (type === 'bun_bottom') {
+    } else if (resolved === 'bun_bottom') {
       return { ok: false, reason: 'bun_bottom_only_first' };
     }
 
-    if (type === 'bun_top' && this._ingredients[0] !== 'bun_bottom') {
+    if (resolved === 'bun_top' && this._ingredients[0] !== 'bun_bottom') {
       return { ok: false, reason: 'need_bun_bottom_first' };
     }
 
-    this._ingredients.push(type);
+    this._ingredients.push(resolved);
     return { ok: true };
   }
 

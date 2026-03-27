@@ -137,6 +137,8 @@ export class SlingshotController {
    * @param {import('./floatingBonusText.js').FloatingBonusLayer} [o.floatingLayer]
    * @param {{ screenShake?: import('./juiceSystems.js').ScreenShake, coinFlyout?: import('./juiceSystems.js').CoinFlyoutLayer, coinsHudEl?: HTMLElement | null }} [o.juice]
    * @param {import('./audioSystem.js').GameAudio | null} [o.gameAudio]
+   * @param {import('./burgerDebris.js').BurgerDebrisSystem | null} [o.debrisSystem]
+   * @param {(e: PointerEvent) => boolean} [o.pickInterceptor] return true if event consumed (no aim)
    * @param {() => void} [o.onSettled] after projectile ends / burger returns to plate
    */
   constructor(o) {
@@ -151,6 +153,8 @@ export class SlingshotController {
     this.floatingLayer = o.floatingLayer ?? null;
     this.juice = o.juice ?? {};
     this.gameAudio = o.gameAudio ?? null;
+    this.debrisSystem = o.debrisSystem ?? null;
+    this._pickInterceptor = typeof o.pickInterceptor === 'function' ? o.pickInterceptor : null;
     this._onSettled = typeof o.onSettled === 'function' ? o.onSettled : null;
 
     this.counterBox = getCounterAabb();
@@ -201,15 +205,16 @@ export class SlingshotController {
     /** @type {number[]} */
     this._flightTrailPts = [];
 
-    /** @type {null | { mesh: THREE.Group, pos: THREE.Vector3, vel: THREE.Vector3, r: number, stuckT: number, slide: boolean, fadeMats: THREE.Material[], life: number, thrownStack: string[] }} */
+    /** @type {null | { mesh: THREE.Group, pos: THREE.Vector3, vel: THREE.Vector3, r: number, fadeMats: THREE.Material[], life: number, thrownStack: string[] }} */
     this._proj = null;
     /** @type {null | ReturnType<typeof createSplash>} */
     this._splash = null;
 
     this._onPointerDown = (e) => {
+      if (this._pickInterceptor?.(e)) return;
       if (this.mode !== 'idle' || e.button > 0) return;
       if (!this.gameSession.canPlay()) return;
-      if (!this.burger.isComplete()) return;
+      if (this.burger.getStack().length === 0) return;
       if (e.target !== this.domElement) return;
       e.preventDefault();
       this.mode = 'aiming';
@@ -224,7 +229,7 @@ export class SlingshotController {
 
     this._onPointerMove = (e) => {
       if (this.mode !== 'aiming' || e.pointerId !== this._pointerId) return;
-      if (!this.burger.isComplete()) {
+      if (this.burger.getStack().length === 0) {
         this._cancelAim();
         return;
       }
@@ -243,7 +248,7 @@ export class SlingshotController {
       }
       this._pointerId = null;
 
-      if (!this.burger.isComplete()) {
+      if (this.burger.getStack().length === 0) {
         this._cancelAim();
         return;
       }
@@ -390,8 +395,6 @@ export class SlingshotController {
       pos: this._anchorWorld.clone(),
       vel: vel0.clone(),
       r,
-      stuckT: 0,
-      slide: false,
       fadeMats,
       life: 0,
       /** @type {string[]} snapshot for exact match vs customer order */
@@ -415,6 +418,25 @@ export class SlingshotController {
     this._onSettled?.();
   }
 
+  /** Clear flying projectile and splash (Play Again / game reset). */
+  resetFlightState() {
+    this._cancelAim();
+    if (this._proj) {
+      this._proj.mesh.removeFromParent();
+      disposeObject3D(this._proj.mesh);
+      this._proj = null;
+    }
+    if (this._splash) {
+      this._splash.group.removeFromParent();
+      disposeObject3D(this._splash.group);
+      this._splash = null;
+    }
+    this._flightTrailPts.length = 0;
+    this._flightTrailLine.visible = false;
+    this.mode = 'idle';
+    this._pointerId = null;
+  }
+
   _updateFlightTrail(pos) {
     const buf = this._flightTrailPts;
     buf.push(pos.x, pos.y, pos.z);
@@ -434,27 +456,30 @@ export class SlingshotController {
    * @param {'ground'|'wall'|'face'} [variant='ground']
    * @param {THREE.Vector3 | null} [wallNormal]
    */
-  _splatAt(pos, breakCombo = true, variant = 'ground', wallNormal = null) {
+  /**
+   * Failed throw: debris + optional particle splash + teardown (validation only at collision).
+   * @param {'ground'|'wall'|'face'} variant
+   * @param {THREE.Vector3} splatPos particle burst origin
+   * @param {THREE.Vector3 | null} wallNormal
+   * @param {{ alreadyBrokeCombo?: boolean }} opts
+   */
+  _failImpact(variant, splatPos, wallNormal = null, opts = {}) {
+    const alreadyBrokeCombo = Boolean(opts.alreadyBrokeCombo);
+    if (!alreadyBrokeCombo) {
+      if (variant === 'ground') this.gameSession.notifyThrowHitGround();
+      else this.gameSession.notifyThrowHitObstacle();
+    }
     if (variant === 'face') this.gameAudio?.playWrongSplat();
     else this.gameAudio?.playMissThud();
-    if (breakCombo) this.gameSession.onComboBreakEvent();
     if (variant === 'ground') this.juice.screenShake?.trigger(0.065);
     if (variant === 'wall') this.juice.screenShake?.trigger(0.055);
     if (variant === 'face') this.juice.screenShake?.trigger(0.22);
-    this._splash = createSplash(this.scene, pos, variant, { normal: wallNormal ?? undefined });
-    this._finishThrow();
-  }
 
-  _tryWallBounce(vel, normal) {
-    const speed = vel.length();
-    if (speed > 6.5 && Math.random() > 0.38) {
-      const vn = vel.dot(normal);
-      if (vn < 0) {
-        vel.addScaledVector(normal, -(1 + 0.35) * vn);
-      }
-      return true;
+    if (this.debrisSystem && this._proj?.thrownStack?.length) {
+      this.debrisSystem.spawnFromStack(this._proj.thrownStack, this._proj.pos.clone(), wallNormal);
     }
-    return false;
+    this._splash = createSplash(this.scene, splatPos, variant, { normal: wallNormal ?? undefined });
+    this._finishThrow();
   }
 
   /**
@@ -471,33 +496,6 @@ export class SlingshotController {
     p.life += dt;
     if (p.life > 14) {
       this._finishThrow();
-      return;
-    }
-
-    if (p.slide) {
-      p.mesh.scale.setScalar(1);
-      p.pos.y -= 0.55 * dt;
-      const fade = Math.min(1, p.stuckT / 1.05);
-      for (const m of p.fadeMats) {
-        m.transparent = true;
-        m.opacity = Math.max(0, 1 - fade);
-      }
-      p.stuckT += dt;
-      p.mesh.position.copy(p.pos);
-      if (p.stuckT > 1.1 || p.pos.y < 0.12) {
-        this._finishThrow();
-      }
-      return;
-    }
-
-    if (p.stuckT > 0 && !p.slide) {
-      p.mesh.scale.setScalar(1);
-      p.stuckT += dt;
-      p.mesh.position.copy(p.pos);
-      if (p.stuckT > 0.45) {
-        p.slide = true;
-        p.stuckT = 0;
-      }
       return;
     }
 
@@ -524,9 +522,6 @@ export class SlingshotController {
         if (hitEntry) {
           hitEntry.view.root.getWorldPosition(hitAnchor);
           hitAnchor.y += 2.05;
-        }
-        if (hitEntry?.customer.orderMatches(stack)) {
-          this.customerManager.notifyCorrectHit(c.index);
         }
         const result = this.gameSession.resolveThrowVsCustomer(stack, c.index, this.customerManager);
         if (result.correct) {
@@ -578,39 +573,33 @@ export class SlingshotController {
             facePos.copy(p.pos);
           }
           this.customerManager.notifyWrongHit(c.index);
-          this._splatAt(facePos, false, 'face');
+          this._failImpact('face', facePos, null, { alreadyBrokeCombo: true });
         }
         return;
       }
     }
 
     if (sphereVsAabb(p.pos, p.r, this.counterBox)) {
-      p.mesh.scale.setScalar(1);
-      p.vel.set(0, 0, 0);
-      p.pos.x = THREE.MathUtils.clamp(p.pos.x, this.counterBox.min.x + p.r * 0.85, this.counterBox.max.x - p.r * 0.85);
-      p.pos.z = THREE.MathUtils.clamp(p.pos.z, this.counterBox.min.z + p.r * 0.5, this.counterBox.max.z - p.r * 0.5);
-      p.pos.y = Math.max(p.pos.y, this.counterBox.max.y + p.r * 0.15);
-      p.pos.y = Math.min(p.pos.y, this.counterBox.max.y + p.r * 0.55);
-      p.stuckT = 0.001;
-      p.mesh.position.copy(p.pos);
+      this._failImpact(
+        'wall',
+        p.pos.clone(),
+        new THREE.Vector3(0, 1, 0),
+      );
       return;
     }
 
     if (resolveWalls(p.pos, p.r, _wallN)) {
-      if (!this._tryWallBounce(p.vel, _wallN)) {
-        this._splatAt(
-          p.pos.clone().setY(Math.max(p.r + 0.02, p.pos.y)),
-          true,
-          'wall',
-          _wallN.clone(),
-        );
-        return;
-      }
+      this._failImpact(
+        'wall',
+        p.pos.clone().setY(Math.max(p.r + 0.02, p.pos.y)),
+        _wallN.clone(),
+      );
+      return;
     }
 
     if (hitsFloor(p.pos, p.r)) {
       p.pos.y = p.r + 0.02;
-      this._splatAt(p.pos.clone(), true, 'ground');
+      this._failImpact('ground', p.pos.clone());
     }
 
     p.mesh.position.copy(p.pos);

@@ -3,7 +3,7 @@
  */
 
 export const START_TIME_SECONDS = 45;
-export const TIME_BONUS_CORRECT_DELIVERY = 1;
+export const TIME_BONUS_CORRECT_DELIVERY = 5;
 export const COMBO_MAX = 3;
 
 /** Optional flat bonus when scoring at max multiplier (before combo steps up). */
@@ -105,6 +105,7 @@ export class GameSession {
     }
 
     if (entry.customer.orderMatches(thrownStack)) {
+      customerManager.notifyCorrectHit(entryIndex);
       const now = performance.now();
       let fast = false;
       let insane = false;
@@ -132,5 +133,27 @@ export class GameSession {
 
   canPlay() {
     return !this.gameOver;
+  }
+
+  /** Full reset for Play Again (timer, coins, combo, timing flags). */
+  resetForNewGame() {
+    this.timeLeft = START_TIME_SECONDS;
+    this.gameOver = false;
+    this.combo = 1;
+    this.totalCoins = 0;
+    this._burgerBuildStartMs = null;
+    this._throwAirStartMs = null;
+  }
+
+  /**
+   * Thrown burger hit the ground (no customer): fail only, no customer removal.
+   */
+  notifyThrowHitGround() {
+    this.onComboBreakEvent();
+  }
+
+  /** Wall / counter splat (no customer). */
+  notifyThrowHitObstacle() {
+    this.onComboBreakEvent();
   }
 }

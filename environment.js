@@ -48,9 +48,57 @@ function standardMat(opts) {
   });
 }
 
+function addWallMesh(group, wallMat, name, positions, index) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, wallMat);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  mesh.name = name;
+  group.add(mesh);
+}
+
+const WIN_Y0 = 1.08;
+const WIN_Y1 = 2.72;
+
+/** Double sliding panels at back wall (customer entrance). */
+export class BackDoor {
+  constructor() {
+    this.group = new THREE.Group();
+    this.group.name = 'BackDoor';
+    const frameMat = standardMat({
+      color: 0x5c5348,
+      roughness: 0.55,
+      metalness: 0.12,
+    });
+    const panelW = 0.52;
+    const panelH = 2.38;
+    const panelD = 0.07;
+    this.leftPanel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, panelD), frameMat);
+    this.rightPanel = new THREE.Mesh(new THREE.BoxGeometry(panelW, panelH, panelD), frameMat);
+    this.leftPanel.castShadow = true;
+    this.rightPanel.castShadow = true;
+    this.leftPanel.position.set(-panelW / 2 - 0.02, panelH / 2 + 0.02, 0);
+    this.rightPanel.position.set(panelW / 2 + 0.02, panelH / 2 + 0.02, 0);
+    this.group.add(this.leftPanel, this.rightPanel);
+    this.group.position.set(0, 0, ROOM.zBack + 0.07);
+    this._open = 0;
+  }
+
+  /** @param {number} u 0 closed — 1 open */
+  setOpen(u) {
+    this._open = THREE.MathUtils.clamp(u, 0, 1);
+    const slide = this._open * 0.44;
+    this.leftPanel.position.x = -0.54 - slide;
+    this.rightPanel.position.x = 0.54 + slide;
+  }
+}
+
 /**
- * Trapezoidal room: merged floor (1 draw call), walls, counter.
- * @returns {THREE.Group}
+ * Trapezoidal room: merged floor, windowed walls, counter, back door.
+ * @returns {{ group: THREE.Group, backDoor: BackDoor }}
  */
 export function buildRestaurantRoom() {
   const group = new THREE.Group();
@@ -102,70 +150,114 @@ export function buildRestaurantRoom() {
     floorGeos.forEach((g) => g.dispose());
   }
 
-  const wallQuads = [
-    {
-      name: 'WallLeft',
-      positions: (() => {
-        const z0w = ROOM.zFront;
-        const z1w = ROOM.zBack;
-        const h = ROOM.wallHeight;
-        const xl0 = xLeftAtZ(z0w);
-        const xl1 = xLeftAtZ(z1w);
-        return new Float32Array([
-          xl0, 0, z0w,
-          xl0, h, z0w,
-          xl1, h, z1w,
-          xl1, 0, z1w,
-        ]);
-      })(),
-      index: [0, 1, 2, 0, 2, 3],
-    },
-    {
-      name: 'WallRight',
-      positions: (() => {
-        const z0w = ROOM.zFront;
-        const z1w = ROOM.zBack;
-        const h = ROOM.wallHeight;
-        const xr0 = xRightAtZ(z0w);
-        const xr1 = xRightAtZ(z1w);
-        return new Float32Array([
-          xr0, 0, z0w,
-          xr0, h, z0w,
-          xr1, h, z1w,
-          xr1, 0, z1w,
-        ]);
-      })(),
-      index: [0, 2, 1, 0, 3, 2],
-    },
-    {
-      name: 'WallBack',
-      positions: (() => {
-        const z = ROOM.zBack;
-        const h = ROOM.wallHeight;
-        const xl = xLeftAtZ(z);
-        const xr = xRightAtZ(z);
-        return new Float32Array([
-          xl, 0, z,
-          xl, h, z,
-          xr, h, z,
-          xr, 0, z,
-        ]);
-      })(),
-      index: [0, 1, 2, 0, 2, 3],
-    },
-  ];
-
-  for (const w of wallQuads) {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(w.positions, 3));
-    geo.setIndex(w.index);
-    geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, wallMat);
-    mesh.receiveShadow = true;
-    mesh.castShadow = true;
-    mesh.name = w.name;
-    group.add(mesh);
+  {
+    const z0w = ROOM.zFront;
+    const z1w = ROOM.zBack;
+    const h = ROOM.wallHeight;
+    const xl0 = xLeftAtZ(z0w);
+    const xl1 = xLeftAtZ(z1w);
+    addWallMesh(
+      group,
+      wallMat,
+      'WallLeft_Lower',
+      new Float32Array([
+        xl0, 0, z0w,
+        xl0, WIN_Y0, z0w,
+        xl1, WIN_Y0, z1w,
+        xl1, 0, z1w,
+      ]),
+      [0, 1, 2, 0, 2, 3],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallLeft_Upper',
+      new Float32Array([
+        xl0, WIN_Y1, z0w,
+        xl0, h, z0w,
+        xl1, h, z1w,
+        xl1, WIN_Y1, z1w,
+      ]),
+      [0, 1, 2, 0, 2, 3],
+    );
   }
+  {
+    const z0w = ROOM.zFront;
+    const z1w = ROOM.zBack;
+    const h = ROOM.wallHeight;
+    const xr0 = xRightAtZ(z0w);
+    const xr1 = xRightAtZ(z1w);
+    addWallMesh(
+      group,
+      wallMat,
+      'WallRight_Lower',
+      new Float32Array([
+        xr0, 0, z0w,
+        xr0, WIN_Y0, z0w,
+        xr1, WIN_Y0, z1w,
+        xr1, 0, z1w,
+      ]),
+      [0, 2, 1, 0, 3, 2],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallRight_Upper',
+      new Float32Array([
+        xr0, WIN_Y1, z0w,
+        xr0, h, z0w,
+        xr1, h, z1w,
+        xr1, WIN_Y1, z1w,
+      ]),
+      [0, 2, 1, 0, 3, 2],
+    );
+  }
+  {
+    const z = ROOM.zBack;
+    const h = ROOM.wallHeight;
+    const xl = xLeftAtZ(z);
+    const xr = xRightAtZ(z);
+    const xm0 = -0.64;
+    const xm1 = 0.64;
+    addWallMesh(
+      group,
+      wallMat,
+      'WallBack_LeftLower',
+      new Float32Array([xl, 0, z, xl, WIN_Y0, z, xm0, WIN_Y0, z, xm0, 0, z]),
+      [0, 1, 2, 0, 2, 3],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallBack_LeftUpper',
+      new Float32Array([xl, WIN_Y1, z, xl, h, z, xm0, h, z, xm0, WIN_Y1, z]),
+      [0, 1, 2, 0, 2, 3],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallBack_RightLower',
+      new Float32Array([xm1, 0, z, xm1, WIN_Y0, z, xr, WIN_Y0, z, xr, 0, z]),
+      [0, 1, 2, 0, 2, 3],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallBack_RightUpper',
+      new Float32Array([xm1, WIN_Y1, z, xm1, h, z, xr, h, z, xr, WIN_Y1, z]),
+      [0, 1, 2, 0, 2, 3],
+    );
+    addWallMesh(
+      group,
+      wallMat,
+      'WallBack_Lintel',
+      new Float32Array([xm0, WIN_Y1, z, xm0, h, z, xm1, h, z, xm1, WIN_Y1, z]),
+      [0, 1, 2, 0, 2, 3],
+    );
+  }
+
+  const backDoor = new BackDoor();
+  group.add(backDoor.group);
 
   {
     const zPlane = ZONES.counterToCustomers + 0.32;
@@ -202,7 +294,7 @@ export function buildRestaurantRoom() {
     group.add(top);
   }
 
-  return group;
+  return { group, backDoor };
 }
 
 /**

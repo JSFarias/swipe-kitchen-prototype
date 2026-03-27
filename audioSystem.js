@@ -8,8 +8,9 @@ import * as THREE from 'three';
 /** Global / group gains (0–1 typical). Per-effect gains multiply into SFX. */
 export const AUDIO_LEVELS = {
   master: 1,
-  /** Background jazz loop */
-  music: 0.2,
+  /** Background music loop */
+  music: 0.22,
+  timeUp: 0.55,
   /** All one-shot SFX multiplier */
   sfx: 0.85,
   tap: 0.55,
@@ -118,52 +119,64 @@ function createTrashBuffer(ctx, durationSec = 0.2) {
   return buffer;
 }
 
-/** Lo-fi jazz-style pad + walking bass (~3.2s loop). */
-function createJazzLoopBuffer(ctx, durationSec = 3.2) {
+/** Upbeat funky loop (~2.4s) — driving bass, hats, bright stabs. */
+function createFunkyLoopBuffer(ctx, durationSec = 2.4) {
   const sr = ctx.sampleRate;
   const n = Math.floor(sr * durationSec);
   const buffer = ctx.createBuffer(2, n, sr);
-  const bpm = 108;
+  const bpm = 126;
   const beatDur = 60 / bpm;
 
   for (let ch = 0; ch < 2; ch++) {
     const d = buffer.getChannelData(ch);
-    const pan = ch === 0 ? 0.92 : 1.08;
+    const pan = ch === 0 ? 0.94 : 1.06;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const beat = t / beatDur;
       const beatPhase = beat % 1;
+      const step = Math.floor(beat) % 4;
 
       let s = 0;
-      s += 0.045 * pan * Math.sin(2 * Math.PI * 220 * t);
-      s += 0.038 * pan * Math.sin(2 * Math.PI * 261.63 * t);
-      s += 0.032 * pan * Math.sin(2 * Math.PI * 329.63 * t);
-      s += 0.028 * pan * Math.sin(2 * Math.PI * 392 * t);
-      s += 0.022 * pan * Math.sin(2 * Math.PI * 493.88 * t);
-
-      const bar = Math.floor(beat / 4) % 2;
-      const step = Math.floor(beat) % 4;
-      const bassLine =
-        bar === 0
-          ? [55, 73.42, 65.41, 49][step]
-          : [58.27, 69.3, 61.74, 41.2][step];
-      const bassAtk = Math.min(1, beatPhase * 28);
-      const bassRel = (1 - beatPhase) * (1 - beatPhase);
-      s +=
-        0.11 *
-        bassAtk *
-        bassRel *
-        Math.sin(2 * Math.PI * bassLine * t);
+      const bassFreq = [82.4, 82.4, 98, 73.4][step];
+      const ba = Math.min(1, beatPhase * 36) * (1 - beatPhase);
+      s += 0.15 * pan * ba * Math.sin(2 * Math.PI * bassFreq * t);
 
       if (beatPhase > 0.5 && beatPhase < 0.58) {
-        s += (Math.random() * 2 - 1) * 0.018 * (ch === 0 ? 1 : -1);
+        s += (Math.random() * 2 - 1) * 0.09 * pan;
       }
-      if (beatPhase > 0.0 && beatPhase < 0.06) {
-        s += (Math.random() * 2 - 1) * 0.012;
+      if (beatPhase > 0.02 && beatPhase < 0.09) {
+        s += (Math.random() * 2 - 1) * 0.045;
+      }
+      if (beatPhase > 0.25 && beatPhase < 0.31) {
+        s += (Math.random() * 2 - 1) * 0.035;
       }
 
-      d[i] = Math.max(-1, Math.min(1, s * 0.75));
+      s += 0.055 * pan * Math.sin(2 * Math.PI * 196 * t);
+      s += 0.042 * pan * Math.sin(2 * Math.PI * 246.94 * t);
+      s += 0.032 * pan * Math.sin(2 * Math.PI * 293.66 * t);
+
+      d[i] = Math.max(-1, Math.min(1, s * 0.72));
     }
+  }
+  return buffer;
+}
+
+/** Short cheerful “time up” sting. */
+function createTimeUpBuffer(ctx, durationSec = 0.52) {
+  const sr = ctx.sampleRate;
+  const n = Math.floor(sr * durationSec);
+  const buffer = ctx.createBuffer(1, n, sr);
+  const d = buffer.getChannelData(0);
+  const freqs = [392, 493.88, 587.33, 659.25];
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 2.2) * (1 - t / durationSec);
+    let s = 0;
+    freqs.forEach((f, k) => {
+      const st = k * 0.09;
+      if (t >= st) s += Math.sin(2 * Math.PI * f * (t - st)) * (0.12 - k * 0.018);
+    });
+    d[i] = s * env;
   }
   return buffer;
 }
@@ -196,6 +209,8 @@ export class GameAudio {
     this._thud = null;
     this._trash = null;
     /** @type {THREE.Audio | null} */
+    this._timeUp = null;
+    /** @type {THREE.Audio | null} */
     this._music = null;
     this._musicStarted = false;
     this._unlocked = false;
@@ -218,7 +233,8 @@ export class GameAudio {
       wrongSplat: createSplatBuffer(ctx),
       missThud: createThudBuffer(ctx),
       trash: createTrashBuffer(ctx),
-      jazz: createJazzLoopBuffer(ctx),
+      funk: createFunkyLoopBuffer(ctx),
+      timeUp: createTimeUpBuffer(ctx),
     };
 
     for (let i = 0; i < 3; i++) {
@@ -242,10 +258,18 @@ export class GameAudio {
     this._trash = new THREE.Audio(this.listener);
     this._trash.setBuffer(this._buffers.trash);
 
+    this._timeUp = new THREE.Audio(this.listener);
+    this._timeUp.setBuffer(this._buffers.timeUp);
+
     this._music = new THREE.Audio(this.listener);
-    this._music.setBuffer(this._buffers.jazz);
+    this._music.setBuffer(this._buffers.funk);
     this._music.setLoop(true);
     this._applyMusicVolume();
+
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'running') this.startMusicIfNeeded();
+    });
+    if (ctx.state === 'running') this.startMusicIfNeeded();
   }
 
   _sfxVol(key) {
@@ -319,5 +343,9 @@ export class GameAudio {
 
   playTrash() {
     playOneShot(this._trash, this._sfxVol('trash'));
+  }
+
+  playTimeUp() {
+    playOneShot(this._timeUp, this._sfxVol('timeUp'));
   }
 }

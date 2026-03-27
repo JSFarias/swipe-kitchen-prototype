@@ -50,65 +50,85 @@
         touch-action: none;
       }
 
-      /* Overlay UI: ingredient tray (bottom). Canvas stays full-bleed behind. */
+      /* HUD + game-over overlay (ingredients are 3D in-scene). */
       #burger-ui {
         position: absolute;
         inset: 0;
         pointer-events: none;
         z-index: 2;
+      }
+
+      #game-over-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
         display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+          opacity 0.35s ease,
+          visibility 0.35s;
       }
 
-      .burger-ui__bar {
+      #game-over-overlay.game-over-overlay--visible {
+        opacity: 1;
+        visibility: visible;
         pointer-events: auto;
-        padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0));
-        background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.2));
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        max-height: 38%;
       }
 
-      .burger-ui__btn {
+      .game-over-panel {
+        text-align: center;
+        padding: clamp(18px, 5vmin, 28px) clamp(22px, 6vmin, 36px);
+        border-radius: clamp(16px, 4vmin, 22px);
+        background: linear-gradient(165deg, rgba(36, 32, 40, 0.96), rgba(22, 20, 26, 0.98));
+        box-shadow:
+          0 12px 48px rgba(0, 0, 0, 0.55),
+          0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+        transform: scale(0.82);
+        opacity: 0;
+        transition:
+          transform 0.42s cubic-bezier(0.34, 1.35, 0.64, 1),
+          opacity 0.35s ease;
+        max-width: 88%;
+      }
+
+      #game-over-overlay.game-over-overlay--visible .game-over-panel {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      .game-over-panel__title {
+        margin: 0 0 clamp(8px, 2vmin, 12px);
+        font: 900 clamp(1.75rem, 7vmin, 2.35rem) / 1.05 system-ui, sans-serif;
+        letter-spacing: 0.06em;
+        color: #fff;
+        text-shadow: 0 2px 16px rgba(0, 0, 0, 0.5);
+      }
+
+      .game-over-panel__coins {
+        margin: 0 0 clamp(18px, 4vmin, 24px);
+        font: 700 clamp(1rem, 3.2vmin, 1.2rem) system-ui, sans-serif;
+        color: #ffd873;
+      }
+
+      .game-over-panel__btn {
         border: none;
-        border-radius: 10px;
-        padding: 10px 6px;
-        font: 600 11px/1.2 system-ui, sans-serif;
-        color: #1a1a1a;
-        background: #f4f1ea;
-        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
+        border-radius: clamp(12px, 3vmin, 16px);
+        padding: clamp(12px, 3vmin, 16px) clamp(28px, 8vmin, 40px);
+        font: 800 clamp(14px, 3.5vmin, 17px) system-ui, sans-serif;
+        color: #1a1408;
+        background: linear-gradient(180deg, #f0c85c, #d9a62e);
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
         cursor: pointer;
         touch-action: manipulation;
-        transition: transform 0.12s ease, filter 0.12s ease;
       }
 
-      .burger-ui__btn:active {
-        transform: translateY(1px);
-        filter: brightness(0.94);
-      }
-
-      .burger-ui__btn--punch {
-        animation: btnPunch 0.28s ease-out;
-      }
-
-      @keyframes btnPunch {
-        0% {
-          transform: scale(1);
-        }
-        35% {
-          transform: scale(1.12);
-        }
-        100% {
-          transform: scale(1);
-        }
-      }
-
-      .burger-ui__btn--trash {
-        grid-column: span 2;
-        background: #4a2d2d;
-        color: #f5e6e6;
+      .game-over-panel__btn:active {
+        transform: translateY(2px);
       }
 
       /* ---- Polished top HUD (scales with 9:16 stage) ---- */
@@ -131,25 +151,12 @@
         min-height: clamp(3rem, 11vmin, 4.25rem);
       }
 
-      .game-hud__serve {
-        pointer-events: auto;
+      .game-hud__spacer {
         justify-self: start;
-        align-self: center;
-        border: none;
-        border-radius: clamp(8px, 2vmin, 12px);
-        padding: clamp(7px, 1.8vmin, 10px) clamp(10px, 2.5vmin, 14px);
-        font: 700 clamp(11px, 2.8vmin, 13px) / 1 system-ui, sans-serif;
-        background: linear-gradient(180deg, #f0c85c, #d9a62e);
-        color: #1f1608;
-        box-shadow:
-          0 2px 0 rgba(0, 0, 0, 0.22),
-          0 0 0 1px rgba(255, 255, 255, 0.12) inset;
-        cursor: pointer;
-        touch-action: manipulation;
-      }
-
-      .game-hud__serve:active {
-        transform: translateY(1px);
+        width: clamp(52px, 14vmin, 72px);
+        height: 1px;
+        visibility: hidden;
+        pointer-events: none;
       }
 
       .game-hud__timer-slot {
@@ -368,12 +375,17 @@
   <body>
     <div id="device-frame">
       <div id="canvas-stage">
-        <div id="burger-ui" aria-label="Burger ingredients">
+        <div id="burger-ui" aria-label="Game UI">
+          <div id="game-over-overlay" aria-hidden="true">
+            <div class="game-over-panel">
+              <h2 class="game-over-panel__title">TIME UP</h2>
+              <p class="game-over-panel__coins" id="game-over-coins">0 coins</p>
+              <button type="button" class="game-over-panel__btn" id="play-again-btn">Play Again</button>
+            </div>
+          </div>
           <div class="game-hud" role="region" aria-label="Game status">
             <div class="game-hud__top">
-              <button type="button" class="game-hud__serve" id="serve-btn" title="Give burger to a matching customer">
-                Serve
-              </button>
+              <div class="game-hud__spacer" aria-hidden="true"></div>
               <div class="game-hud__timer-slot">
                 <div class="game-hud__timer" id="game-timer-block" aria-live="polite" aria-atomic="true">
                   <svg class="game-hud__timer-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -421,29 +433,6 @@
               </div>
             </div>
             <p class="game-hud__status" id="burger-status" aria-live="polite"></p>
-          </div>
-          <div class="burger-ui__bar">
-            <button type="button" class="burger-ui__btn" data-ingredient="bun_bottom" title="Bottom bun">
-              Bottom
-            </button>
-            <button type="button" class="burger-ui__btn" data-ingredient="lettuce" title="Lettuce">
-              Lettuce
-            </button>
-            <button type="button" class="burger-ui__btn" data-ingredient="tomato" title="Tomato">
-              Tomato
-            </button>
-            <button type="button" class="burger-ui__btn" data-ingredient="cheese" title="Cheese">
-              Cheese
-            </button>
-            <button type="button" class="burger-ui__btn" data-ingredient="meat" title="Patty">
-              Meat
-            </button>
-            <button type="button" class="burger-ui__btn" data-ingredient="bun_top" title="Top bun">
-              Top
-            </button>
-            <button type="button" class="burger-ui__btn burger-ui__btn--trash" id="burger-trash" title="Clear burger">
-              Trash
-            </button>
           </div>
         </div>
       </div>
