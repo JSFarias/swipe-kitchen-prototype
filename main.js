@@ -299,19 +299,37 @@ function init() {
 
   const clock = new THREE.Clock();
   const statusEl = document.getElementById('burger-status');
-  const coinsEl = document.getElementById('coins-display');
+  const coinsDisplayEl = document.getElementById('coins-display');
+  const coinsValueEl = document.getElementById('coins-value');
   const timerEl = document.getElementById('game-timer');
+  const timerBlockEl = document.getElementById('game-timer-block');
   const comboEl = document.getElementById('game-combo');
 
   const gameSession = new GameSession();
+  let prevCoins = gameSession.totalCoins;
 
   function refreshClockAndEconomy() {
-    if (coinsEl) coinsEl.textContent = `Coins: ${gameSession.totalCoins}`;
+    const total = gameSession.totalCoins;
+    if (coinsValueEl) {
+      if (total > prevCoins) {
+        coinsValueEl.classList.remove('game-hud__coins-value--pop');
+        void coinsValueEl.offsetWidth;
+        coinsValueEl.classList.add('game-hud__coins-value--pop');
+      }
+      prevCoins = total;
+      coinsValueEl.textContent = String(total);
+    }
     if (timerEl) {
       const s = Math.max(0, Math.ceil(gameSession.timeLeft));
-      timerEl.textContent = `${s}s`;
+      timerEl.textContent = String(s);
     }
-    if (comboEl) comboEl.textContent = `${gameSession.combo}x`;
+    if (timerBlockEl) {
+      const s = Math.max(0, Math.ceil(gameSession.timeLeft));
+      const live = !gameSession.gameOver && s > 0;
+      timerBlockEl.classList.toggle('game-hud__timer--critical', live && s <= 5);
+      timerBlockEl.classList.toggle('game-hud__timer--low', live && s <= 10 && s > 5);
+    }
+    if (comboEl) comboEl.textContent = `${gameSession.combo}×`;
   }
 
   function refreshHud() {
@@ -351,7 +369,7 @@ function init() {
     juice: {
       screenShake,
       coinFlyout,
-      coinsHudEl: coinsEl,
+      coinsHudEl: coinsDisplayEl,
     },
     gameAudio,
     onSettled: refreshHud,
@@ -412,7 +430,7 @@ function init() {
     }
     const { earned, comboAfter } = gameSession.applyCorrectDelivery(served.baseReward, 0, {});
     gameSession.clearBurgerTiming();
-    coinFlyout.spawnBurst(served.coinWorld, camera, coinsEl, earned);
+    coinFlyout.spawnBurst(served.coinWorld, camera, coinsDisplayEl, earned);
     if (comboAfter >= 2) {
       const w = served.coinWorld.clone();
       w.y += 0.55;
