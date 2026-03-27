@@ -19,6 +19,10 @@ export class GameSession {
   constructor() {
     this.timeLeft = START_TIME_SECONDS;
     this.gameOver = false;
+    /** Until player taps “Open”, timer and throws stay off. */
+    this.shopIsOpen = false;
+    /** Info modal open — pauses timer / gameplay. */
+    this.hudInfoOpen = false;
     /** 1, 2, or 3 — applies to the *current* delivery, then steps up on success. */
     this.combo = 1;
     this.totalCoins = 0;
@@ -33,7 +37,7 @@ export class GameSession {
    * @param {number} dt
    */
   tick(dt) {
-    if (this.gameOver) return;
+    if (this.gameOver || !this.shopIsOpen || this.hudInfoOpen) return;
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) {
       this.timeLeft = 0;
@@ -131,14 +135,27 @@ export class GameSession {
     return { correct: false };
   }
 
+  /** Start round after “Open” button (timer + throws + picks). */
+  openShop() {
+    if (this.gameOver) return;
+    this.shopIsOpen = true;
+  }
+
+  /** Pause timer while info panel is visible. */
+  setHudInfoOpen(v) {
+    this.hudInfoOpen = Boolean(v);
+  }
+
   canPlay() {
-    return !this.gameOver;
+    return !this.gameOver && this.shopIsOpen && !this.hudInfoOpen;
   }
 
   /** Full reset for Play Again (timer, coins, combo, timing flags). */
   resetForNewGame() {
     this.timeLeft = START_TIME_SECONDS;
     this.gameOver = false;
+    this.shopIsOpen = false;
+    this.hudInfoOpen = false;
     this.combo = 1;
     this.totalCoins = 0;
     this._burgerBuildStartMs = null;

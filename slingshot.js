@@ -282,6 +282,11 @@ export class SlingshotController {
     return this.mode !== 'idle';
   }
 
+  /** Drop aim rubber-band if info modal / pause hides mid-drag. */
+  cancelAimOnly() {
+    if (this.mode === 'aiming') this._cancelAim();
+  }
+
   dispose() {
     this.domElement.removeEventListener('pointerdown', this._onPointerDown);
     this.domElement.removeEventListener('pointermove', this._onPointerMove);

@@ -68,7 +68,6 @@ function init() {
   scene.add(roomGroup);
 
   const customerManager = new CustomerManager(scene, backDoor);
-  customerManager.fillToMax();
 
   const burger = new Burger();
   const playArea = new THREE.Group();
@@ -86,7 +85,7 @@ function init() {
   const stackView = new BurgerStackView(stackAnchor);
   stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
 
-  const worldPickables = new WorldPickables(playArea);
+  const worldPickables = new WorldPickables(playArea, scene);
 
   const clock = new THREE.Clock();
   const statusEl = document.getElementById('burger-status');
@@ -98,6 +97,10 @@ function init() {
   const gameOverOverlay = document.getElementById('game-over-overlay');
   const gameOverCoinsEl = document.getElementById('game-over-coins');
   const playAgainBtn = document.getElementById('play-again-btn');
+  const hudInfoBtn = document.getElementById('hud-info-btn');
+  const hudInfoModal = document.getElementById('hud-info-modal');
+  const hudInfoClose = document.getElementById('hud-info-close');
+  const gameOverSplash = document.querySelector('.game-over-splash');
 
   const gameSession = new GameSession();
   let prevCoins = gameSession.totalCoins;
@@ -127,6 +130,33 @@ function init() {
     if (comboEl) comboEl.textContent = `${gameSession.combo}×`;
   }
 
+  function setHudInfoVisible(show) {
+    if (show) {
+      gameSession.setHudInfoOpen(true);
+      slingshotRef?.cancelAimOnly();
+      hudInfoModal?.classList.add('hud-info-modal--visible');
+      hudInfoModal?.setAttribute('aria-hidden', 'false');
+    } else {
+      gameSession.setHudInfoOpen(false);
+      hudInfoModal?.classList.remove('hud-info-modal--visible');
+      hudInfoModal?.setAttribute('aria-hidden', 'true');
+    }
+    refreshHud();
+  }
+
+  hudInfoBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (gameSession.gameOver) return;
+    setHudInfoVisible(true);
+  });
+  hudInfoClose?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setHudInfoVisible(false);
+  });
+  hudInfoModal?.addEventListener('click', (e) => {
+    if (e.target === hudInfoModal) setHudInfoVisible(false);
+  });
+
   function refreshHud() {
     refreshClockAndEconomy();
     if (!statusEl) return;
@@ -135,8 +165,10 @@ function init() {
       return;
     }
     const n = burger.getStack().length;
-    if (n === 0) {
-      statusEl.textContent = 'Tap a pile to build — bun first. Trash can clears stack.';
+    if (!gameSession.shopIsOpen) {
+      statusEl.textContent = 'Tap the yellow Open sign by the door to begin.';
+    } else if (n === 0) {
+      statusEl.textContent = '';
     } else if (burger.isComplete()) {
       statusEl.textContent = 'Order complete — drag from burger to aim, release to throw.';
     } else if (n >= 6) {
@@ -160,6 +192,16 @@ function init() {
     if (gameSession.gameOver) return false;
     const pick = worldPickables.tryPick(e.clientX, e.clientY, camera, renderer.domElement);
     if (!pick) return false;
+    if (pick.openShop) {
+      if (gameSession.shopIsOpen) return true;
+      gameSession.openShop();
+      customerManager.beginGameplay();
+      refreshHud();
+      return true;
+    }
+    if (!gameSession.canPlay()) {
+      return true;
+    }
     if (pick.trash) {
       if (slingshotRef?.isBusy()) return true;
       gameAudio.playTrash();
@@ -217,6 +259,11 @@ function init() {
     }
     gameOverOverlay.classList.add('game-over-overlay--visible');
     gameOverOverlay.setAttribute('aria-hidden', 'false');
+    if (gameOverSplash) {
+      gameOverSplash.classList.remove('game-over-splash--animate');
+      void gameOverSplash.offsetWidth;
+      gameOverSplash.classList.add('game-over-splash--animate');
+    }
   }
 
   function resetFullGame() {
@@ -227,6 +274,7 @@ function init() {
       gameOverOverlay.classList.remove('game-over-overlay--visible');
       gameOverOverlay.setAttribute('aria-hidden', 'true');
     }
+    gameOverSplash?.classList.remove('game-over-splash--animate');
     burger.reset();
     stackView.clearFeedbacks();
     stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
@@ -234,6 +282,8 @@ function init() {
     debrisSystem.clear();
     slingshotRef?.resetFlightState();
     customerManager.resetGame();
+    hudInfoModal?.classList.remove('hud-info-modal--visible');
+    hudInfoModal?.setAttribute('aria-hidden', 'true');
     refreshHud();
   }
 
@@ -268,14 +318,17 @@ function init() {
 
     refreshClockAndEconomy();
 
+    const simFrozen = gameSession.hudInfoOpen && !gameSession.gameOver;
+    const simDt = simFrozen ? 0 : dt;
+
     if (!gameSession.gameOver) {
-      stackView.update(dt);
-      customerManager.update(dt);
-      slingshotRef?.update(dt);
-      floatingLayer.update(dt);
-      coinFlyout.update(dt);
-      cameraDrift.update(dt);
-      screenShake.update(dt);
+      stackView.update(simDt);
+      customerManager.update(simDt);
+      slingshotRef?.update(simDt);
+      floatingLayer.update(simDt);
+      coinFlyout.update(simDt);
+      cameraDrift.update(simDt);
+      screenShake.update(simDt);
     }
 
     debrisSystem.update(dt);

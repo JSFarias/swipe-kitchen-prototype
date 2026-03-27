@@ -76,8 +76,8 @@ export class CustomerView {
     this._head.name = 'CustomerHead';
     this.root.add(this._head);
 
-    this._orderBaseY = 2.35;
-    this._orderGroup = buildOrderPreviewGroup(customer.order, 0.68);
+    this._orderBaseY = 2.85;
+    this._orderGroup = buildOrderPreviewGroup(customer.order, 1.36);
     this._orderGroup.position.set(0, this._orderBaseY, 0);
     this.root.add(this._orderGroup);
 

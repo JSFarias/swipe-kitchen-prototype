@@ -72,6 +72,134 @@
         transition:
           opacity 0.35s ease,
           visibility 0.35s;
+        overflow: hidden;
+      }
+
+      /* Radial burst + rings behind the TIME UP panel */
+      .game-over-splash {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .game-over-splash__burst {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        width: 160%;
+        height: 160%;
+        transform: translate(-50%, -50%) scale(0.15);
+        opacity: 0;
+        background: radial-gradient(
+          circle closest-side,
+          rgba(255, 220, 120, 0.75) 0%,
+          rgba(255, 140, 60, 0.35) 28%,
+          rgba(255, 80, 120, 0.12) 48%,
+          transparent 70%
+        );
+        filter: blur(0px);
+      }
+
+      .game-over-splash__ring {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        width: min(120vmin, 520px);
+        height: min(120vmin, 520px);
+        transform: translate(-50%, -50%) scale(0.2);
+        opacity: 0;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 230, 160, 0.85);
+        box-shadow:
+          0 0 40px rgba(255, 200, 80, 0.5),
+          inset 0 0 60px rgba(255, 255, 255, 0.15);
+      }
+
+      .game-over-splash__confetti {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .game-over-splash__confetti span {
+        position: absolute;
+        left: var(--x, 50%);
+        top: -8%;
+        width: var(--w, 8px);
+        height: var(--h, 12px);
+        border-radius: 2px;
+        background: var(--c, #ffd54a);
+        opacity: 0;
+        transform: rotate(var(--r, 0deg));
+        animation: none;
+      }
+
+      .game-over-splash--animate .game-over-splash__burst {
+        animation: goSplashBurst 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      .game-over-splash--animate .game-over-splash__ring {
+        animation: goSplashRing 0.95s cubic-bezier(0.2, 0.9, 0.35, 1) forwards;
+      }
+
+      .game-over-splash--animate .game-over-splash__confetti span {
+        animation: goConfettiFall 1.15s ease-out forwards;
+        animation-delay: var(--d, 0ms);
+      }
+
+      @keyframes goSplashBurst {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.12);
+          filter: blur(4px);
+        }
+        35% {
+          opacity: 1;
+          filter: blur(0px);
+        }
+        100% {
+          opacity: 0.55;
+          transform: translate(-50%, -50%) scale(1);
+          filter: blur(1px);
+        }
+      }
+
+      @keyframes goSplashRing {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.25);
+        }
+        25% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(1.35);
+        }
+      }
+
+      @keyframes goConfettiFall {
+        0% {
+          opacity: 0;
+          transform: translate3d(0, 0, 0) rotate(0deg);
+        }
+        12% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0.85;
+          transform: translate3d(var(--dx, 0px), 120vh, 0) rotate(var(--r2, 360deg));
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .game-over-splash--animate .game-over-splash__burst,
+        .game-over-splash--animate .game-over-splash__ring,
+        .game-over-splash--animate .game-over-splash__confetti span {
+          animation-duration: 0.01ms;
+        }
       }
 
       #game-over-overlay.game-over-overlay--visible {
@@ -81,6 +209,8 @@
       }
 
       .game-over-panel {
+        position: relative;
+        z-index: 1;
         text-align: center;
         padding: clamp(18px, 5vmin, 28px) clamp(22px, 6vmin, 36px);
         border-radius: clamp(16px, 4vmin, 22px);
@@ -362,6 +492,95 @@
         filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.65));
         will-change: transform, opacity;
       }
+
+      /* Bottom-left how-to-play (pauses timer while open) */
+      .hud-info-btn {
+        position: absolute;
+        left: max(10px, env(safe-area-inset-left, 0px));
+        bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        z-index: 8;
+        width: clamp(40px, 11vmin, 52px);
+        height: clamp(40px, 11vmin, 52px);
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        font: 800 clamp(18px, 5vmin, 24px) / 1 Georgia, 'Times New Roman', serif;
+        font-style: italic;
+        color: rgba(255, 255, 255, 0.95);
+        background: rgba(18, 20, 32, 0.72);
+        box-shadow:
+          0 4px 20px rgba(0, 0, 0, 0.45),
+          0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+        cursor: pointer;
+        touch-action: manipulation;
+        pointer-events: auto;
+      }
+
+      .hud-info-btn:active {
+        transform: scale(0.96);
+      }
+
+      #hud-info-modal {
+        position: absolute;
+        inset: 0;
+        z-index: 15;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+          max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+        background: rgba(0, 0, 0, 0.45);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition:
+          opacity 0.25s ease,
+          visibility 0.25s;
+      }
+
+      #hud-info-modal.hud-info-modal--visible {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+      }
+
+      .hud-info-modal__panel {
+        position: relative;
+        max-width: min(92%, 340px);
+        padding: clamp(18px, 4vmin, 24px) clamp(20px, 5vmin, 28px) clamp(20px, 5vmin, 28px);
+        border-radius: clamp(14px, 3.5vmin, 20px);
+        background: linear-gradient(165deg, rgba(32, 30, 38, 0.97), rgba(18, 16, 24, 0.98));
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.55),
+          0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+      }
+
+      .hud-info-modal__text {
+        margin: 0;
+        font: 600 clamp(13px, 3.2vmin, 15px) / 1.45 system-ui, sans-serif;
+        color: rgba(255, 255, 255, 0.92);
+        text-align: center;
+      }
+
+      .hud-info-modal__close {
+        position: absolute;
+        top: clamp(8px, 2vmin, 12px);
+        right: clamp(8px, 2vmin, 12px);
+        width: clamp(36px, 9vmin, 44px);
+        height: clamp(36px, 9vmin, 44px);
+        padding: 0;
+        border: none;
+        border-radius: 10px;
+        font: 700 1.5rem / 1 system-ui, sans-serif;
+        color: rgba(255, 255, 255, 0.88);
+        background: rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+
+      .hud-info-modal__close:active {
+        background: rgba(255, 255, 255, 0.14);
+      }
     </style>
     <script type="importmap">
       {
@@ -377,6 +596,22 @@
       <div id="canvas-stage">
         <div id="burger-ui" aria-label="Game UI">
           <div id="game-over-overlay" aria-hidden="true">
+            <div class="game-over-splash" aria-hidden="true">
+              <div class="game-over-splash__burst"></div>
+              <div class="game-over-splash__ring"></div>
+              <div class="game-over-splash__confetti" aria-hidden="true">
+                <span style="--x: 12%; --w: 7px; --h: 14px; --c: #ffcc4d; --r: 12deg; --r2: 200deg; --dx: -12px; --d: 0ms"></span>
+                <span style="--x: 22%; --w: 9px; --h: 10px; --c: #ff6b6b; --r: -8deg; --r2: -240deg; --dx: 8px; --d: 40ms"></span>
+                <span style="--x: 35%; --w: 6px; --h: 16px; --c: #74c0fc; --r: 25deg; --r2: 300deg; --dx: -6px; --d: 20ms"></span>
+                <span style="--x: 48%; --w: 10px; --h: 8px; --c: #ffd43b; --r: -15deg; --r2: 180deg; --dx: 4px; --d: 60ms"></span>
+                <span style="--x: 58%; --w: 8px; --h: 12px; --c: #a9e34b; --r: 40deg; --r2: -200deg; --dx: -10px; --d: 10ms"></span>
+                <span style="--x: 72%; --w: 7px; --h: 11px; --c: #ff922b; --r: -22deg; --r2: 260deg; --dx: 14px; --d: 50ms"></span>
+                <span style="--x: 84%; --w: 9px; --h: 9px; --c: #e599f7; --r: 8deg; --r2: -320deg; --dx: -4px; --d: 30ms"></span>
+                <span style="--x: 18%; --w: 6px; --h: 10px; --c: #fff3bf; --r: 55deg; --r2: 140deg; --dx: 18px; --d: 70ms"></span>
+                <span style="--x: 92%; --w: 8px; --h: 13px; --c: #69db7c; --r: -35deg; --r2: 220deg; --dx: -16px; --d: 25ms"></span>
+                <span style="--x: 65%; --w: 7px; --h: 9px; --c: #ffa8a8; --r: 18deg; --r2: -160deg; --dx: 6px; --d: 45ms"></span>
+              </div>
+            </div>
             <div class="game-over-panel">
               <h2 class="game-over-panel__title">TIME UP</h2>
               <p class="game-over-panel__coins" id="game-over-coins">0 coins</p>
@@ -433,6 +668,15 @@
               </div>
             </div>
             <p class="game-hud__status" id="burger-status" aria-live="polite"></p>
+          </div>
+          <button type="button" class="hud-info-btn" id="hud-info-btn" aria-label="How to play">i</button>
+          <div id="hud-info-modal" class="hud-info-modal" aria-hidden="true" role="dialog" aria-labelledby="hud-info-title">
+            <div class="hud-info-modal__panel">
+              <button type="button" class="hud-info-modal__close" id="hud-info-close" aria-label="Close">×</button>
+              <p id="hud-info-title" class="hud-info-modal__text">
+                Tap a pile to build — bun first. Trash can clears stack.
+              </p>
+            </div>
           </div>
         </div>
       </div>

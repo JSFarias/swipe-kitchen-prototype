@@ -15,7 +15,9 @@ import { ROOM } from './roomConstants.js';
 /** Left / center / right slots in the back (customer) zone. */
 const SLOT_X = [-1.42, 0, 1.42];
 const SLOT_Z = -3.22;
-const SPAWN_Z = ROOM.zBack - 0.95;
+/** Start at door opening (walk into room). */
+const DOOR_START_Z = ROOM.zBack + 0.12;
+const WALK_DURATION = 1.25;
 
 export class CustomerManager {
   /**
@@ -36,8 +38,17 @@ export class CustomerManager {
 
     /** @type {{ customer: Customer, view: CustomerView, slotIndex: number }[]} */
     this._walkQueue = [];
-    /** @type {null | { customer: Customer, view: CustomerView, slotIndex: number, phase: string, t: number }} */
+    /** @type {null | { customer: Customer, view: CustomerView, slotIndex: number, phase: string, t: number, walkT: number }} */
     this._activeWalk = null;
+
+    /** When false, no walk-ins or seated updates. */
+    this._gameplayActive = false;
+  }
+
+  /** Call when player taps Open — starts spawning / walk-ins. */
+  beginGameplay() {
+    this._gameplayActive = true;
+    this.fillToMax();
   }
 
   _totalOccupied() {
@@ -45,6 +56,7 @@ export class CustomerManager {
   }
 
   spawnOne() {
+    if (!this._gameplayActive) return;
     if (this._totalOccupied() >= CUSTOMER_MAX_ACTIVE) return;
     const slot = pickRandomFreeSlot(this.usedSlots);
     if (slot === null) return;
@@ -57,7 +69,8 @@ export class CustomerManager {
     });
     const view = new CustomerView(customer);
     view.syncFromCustomer();
-    view.root.position.set(SLOT_X[slot], 0, SPAWN_Z);
+    /* Begin centered at the door, then walk to slot X/Z */
+    view.root.position.set(0, 0, DOOR_START_Z);
     this.group.add(view.root);
     this._walkQueue.push({ customer, view, slotIndex: slot });
   }
@@ -90,6 +103,8 @@ export class CustomerManager {
    * @param {number} dt
    */
   update(dt) {
+    if (!this._gameplayActive) return;
+
     this._updateWalkIn(dt);
 
     for (const e of this.entries) {
@@ -113,14 +128,17 @@ export class CustomerManager {
         this.backDoor?.setOpen(u);
         if (w.t >= 0.34) {
           w.phase = 'walk';
-          w.t = 0;
+          w.walkT = 0;
         }
       } else if (w.phase === 'walk') {
-        const targetZ = SLOT_Z;
-        const speed = 4.2;
-        w.view.root.position.z += speed * dt;
-        if (w.view.root.position.z >= targetZ) {
-          w.view.root.position.z = targetZ;
+        w.walkT += dt;
+        const u = Math.min(1, w.walkT / WALK_DURATION);
+        const sx = SLOT_X[w.slotIndex];
+        w.view.root.position.x = THREE.MathUtils.lerp(0, sx, u);
+        w.view.root.position.z = THREE.MathUtils.lerp(DOOR_START_Z, SLOT_Z, u);
+        if (u >= 1) {
+          w.view.root.position.x = sx;
+          w.view.root.position.z = SLOT_Z;
           w.phase = 'door_close';
           w.t = 0;
         }
@@ -142,6 +160,7 @@ export class CustomerManager {
         slotIndex: next.slotIndex,
         phase: 'door_open',
         t: 0,
+        walkT: 0,
       };
       this.backDoor?.setOpen(0);
     }
@@ -179,7 +198,7 @@ export class CustomerManager {
     if (e) e.view.playHitSquash('light');
   }
 
-  /** Play Again: remove all customers, queues, and refill. */
+  /** Play Again: clear customers; player must tap Open again. */
   resetGame() {
     for (const e of this.entries) {
       this.group.remove(e.view.root);
@@ -191,7 +210,6 @@ export class CustomerManager {
       this.group.remove(w.view.root);
       w.view.dispose();
     }
-    this._walkQueue.length = 0;
     if (this._activeWalk) {
       this.group.remove(this._activeWalk.view.root);
       this._activeWalk.view.dispose();
@@ -199,6 +217,6 @@ export class CustomerManager {
     }
     this.usedSlots.clear();
     this.backDoor?.setOpen(0);
-    this.fillToMax();
+    this._gameplayActive = false;
   }
 }
