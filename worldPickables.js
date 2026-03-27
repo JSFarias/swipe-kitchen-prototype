@@ -37,24 +37,27 @@ export class WorldPickables {
       metalness: 0.06,
     });
 
-    const leftShelf = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.42), shelfMat);
-    leftShelf.position.set(-1.32, 0.88, -0.08);
+    /* Side counters — wider, hug left/right edges of play area */
+    const leftShelf = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.12, 0.52), shelfMat);
+    leftShelf.position.set(-1.52, 0.88, -0.06);
     leftShelf.castShadow = true;
     leftShelf.receiveShadow = true;
     this.group.add(leftShelf);
 
-    const rightShelf = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.42), shelfMat);
-    rightShelf.position.set(1.32, 0.88, -0.08);
+    const rightShelf = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.12, 0.52), shelfMat);
+    rightShelf.position.set(1.52, 0.88, -0.06);
     rightShelf.castShadow = true;
     rightShelf.receiveShadow = true;
     this.group.add(rightShelf);
 
-    this._addIngredientPile('bun', -1.22, -0.02);
-    this._addIngredientPile('lettuce', -1.38, 0.12);
-    this._addIngredientPile('tomato', -1.08, 0.12);
+    /* Left counter: lettuce (back), tomato (forward) — reference layout */
+    this._addIngredientPile('lettuce', -1.52, 0.14);
+    this._addIngredientPile('tomato', -1.52, -0.26);
 
-    this._addIngredientPile('cheese', 1.1, 0.12);
-    this._addIngredientPile('meat', 1.32, -0.02);
+    /* Right counter: cheese (back), meat (mid), bun (forward / lower on screen) */
+    this._addIngredientPile('cheese', 1.52, 0.14);
+    this._addIngredientPile('meat', 1.52, -0.08);
+    this._addIngredientPile('bun', 1.52, -0.3);
 
     const trashMat = new THREE.MeshStandardMaterial({
       color: 0x3a3a3a,
@@ -65,7 +68,9 @@ export class WorldPickables {
       new THREE.CylinderGeometry(0.2, 0.26, 0.42, 14),
       trashMat,
     );
-    trash.position.set(0, 0.27, 0.08);
+    /* Bottom of screen (toward camera / +Z in play area), not tucked under the plate */
+    const trashZ = 0.92;
+    trash.position.set(0, 0.27, trashZ);
     trash.castShadow = true;
     trash.receiveShadow = true;
     trash.userData.isTrash = true;
@@ -77,7 +82,7 @@ export class WorldPickables {
       trashMat,
     );
     rim.rotation.x = Math.PI / 2;
-    rim.position.set(0, 0.44, 0.08);
+    rim.position.set(0, 0.44, trashZ);
     rim.userData.isTrash = true;
     this.group.add(rim);
     this._meshes.push(rim);

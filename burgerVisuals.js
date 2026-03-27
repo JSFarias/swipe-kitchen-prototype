@@ -156,11 +156,12 @@ export function disposeObject3D(root) {
  * @param {string[]} order ingredient ids
  * @param {number} scale uniform scale vs. player stack
  */
-export function buildOrderPreviewGroup(order, scale = 0.52) {
+export function buildOrderPreviewGroup(order, scale = 0.68) {
   const root = new THREE.Group();
   root.name = 'OrderPreview';
   let y = 0;
-  const gap = STACK_GAP * scale * 1.85;
+  /* Extra air between layers so each ingredient reads clearly */
+  const gap = STACK_GAP * scale * 3.1;
   order.forEach((type) => {
     const rawH = getLayerHeight(type);
     const h = rawH * scale;
