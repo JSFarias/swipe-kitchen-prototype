@@ -99,6 +99,7 @@ export class SlingshotController {
    * @param {import('./burgerVisuals.js').BurgerStackView} o.stackView
    * @param {THREE.Object3D} o.stackAnchor
    * @param {import('./customerManager.js').CustomerManager} o.customerManager
+   * @param {import('./gameCore.js').GameSession} o.gameSession
    * @param {() => void} [o.onSettled] after projectile ends / burger returns to plate
    */
   constructor(o) {
@@ -109,6 +110,7 @@ export class SlingshotController {
     this.stackView = o.stackView;
     this.stackAnchor = o.stackAnchor;
     this.customerManager = o.customerManager;
+    this.gameSession = o.gameSession;
     this._onSettled = typeof o.onSettled === 'function' ? o.onSettled : null;
 
     this.counterBox = getCounterAabb();
@@ -152,6 +154,7 @@ export class SlingshotController {
 
     this._onPointerDown = (e) => {
       if (this.mode !== 'idle' || e.button > 0) return;
+      if (!this.gameSession.canPlay()) return;
       if (!this.burger.isComplete()) return;
       if (e.target !== this.domElement) return;
       e.preventDefault();
@@ -321,6 +324,8 @@ export class SlingshotController {
       slide: false,
       fadeMats,
       life: 0,
+      /** @type {string[]} snapshot for exact match vs customer order */
+      thrownStack: stack,
     };
   }
 
@@ -335,7 +340,12 @@ export class SlingshotController {
     this._onSettled?.();
   }
 
-  _splatGround(pos) {
+  /**
+   * @param {THREE.Vector3} pos
+   * @param {boolean} [breakCombo=true] ground/wall splats break combo; wrong-customer splat does not (already broken in resolve).
+   */
+  _splatGround(pos, breakCombo = true) {
+    if (breakCombo) this.gameSession.onComboBreakEvent();
     this._splash = createSplashBurst(this.scene, pos);
     this._finishThrow();
   }
@@ -397,13 +407,23 @@ export class SlingshotController {
     integrateAir(p.vel, dt);
     p.pos.addScaledVector(p.vel, dt);
 
-    const colliders = this.customerManager.getWorldColliders();
+    const colliders = this.customerManager
+      .getWorldColliders()
+      .map((c) => ({ ...c, _d: p.pos.distanceToSquared(c.center) }))
+      .sort((a, b) => a._d - b._d);
+
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       _tmp.copy(p.pos).sub(c.center);
       if (_tmp.length() < p.r + c.radius) {
-        this.customerManager.notifyHit(c.index);
-        this._splatGround(p.pos.clone().setY(Math.max(p.r * 0.4, p.pos.y)));
+        const stack = p.thrownStack;
+        const { correct } = this.gameSession.resolveThrowVsCustomer(stack, c.index, this.customerManager);
+        if (correct) {
+          this._finishThrow();
+        } else {
+          this.customerManager.notifyHit(c.index);
+          this._splatGround(p.pos.clone().setY(Math.max(p.r * 0.4, p.pos.y)), false);
+        }
         return;
       }
     }

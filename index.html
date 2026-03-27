@@ -132,6 +132,24 @@
         pointer-events: none;
       }
 
+      .burger-ui__meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        min-width: 4.5rem;
+        pointer-events: none;
+        font: 700 12px/1.1 system-ui, sans-serif;
+        color: rgba(255, 255, 255, 0.95);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+      }
+
+      .burger-ui__meta span:last-child {
+        font-weight: 600;
+        font-size: 11px;
+        opacity: 0.88;
+      }
+
       .burger-ui__status {
         flex: 1;
         text-align: center;
@@ -173,6 +191,10 @@
           <div class="burger-ui__hud">
             <div class="burger-ui__coins" id="coins-display" aria-live="polite">Coins: 0</div>
             <div class="burger-ui__status" id="burger-status" aria-live="polite"></div>
+            <div class="burger-ui__meta" aria-live="polite">
+              <span id="game-timer">45s</span>
+              <span id="game-combo">1x</span>
+            </div>
             <button type="button" class="burger-ui__serve" id="serve-btn" title="Give burger to a matching customer">
               Serve
             </button>

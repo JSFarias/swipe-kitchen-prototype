@@ -9,6 +9,7 @@ import { createPlate, BurgerStackView } from './burgerVisuals.js';
 import { CustomerManager } from './customerManager.js';
 import { ROOM, ZONES, halfWidthAtZ, xLeftAtZ, xRightAtZ } from './roomConstants.js';
 import { SlingshotController } from './slingshot.js';
+import { GameSession } from './gameCore.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -288,15 +289,27 @@ function init() {
   const clock = new THREE.Clock();
   const statusEl = document.getElementById('burger-status');
   const coinsEl = document.getElementById('coins-display');
-  let totalCoins = 0;
+  const timerEl = document.getElementById('game-timer');
+  const comboEl = document.getElementById('game-combo');
 
-  function refreshCoins() {
-    if (coinsEl) coinsEl.textContent = `Coins: ${totalCoins}`;
+  const gameSession = new GameSession();
+
+  function refreshClockAndEconomy() {
+    if (coinsEl) coinsEl.textContent = `Coins: ${gameSession.totalCoins}`;
+    if (timerEl) {
+      const s = Math.max(0, Math.ceil(gameSession.timeLeft));
+      timerEl.textContent = `${s}s`;
+    }
+    if (comboEl) comboEl.textContent = `${gameSession.combo}x`;
   }
-  refreshCoins();
 
-  function refreshStatus() {
+  function refreshHud() {
+    refreshClockAndEconomy();
     if (!statusEl) return;
+    if (gameSession.gameOver) {
+      statusEl.textContent = `Time's up! Final: ${gameSession.totalCoins} coins.`;
+      return;
+    }
     const n = burger.getStack().length;
     if (n === 0) {
       statusEl.textContent = 'Tap Bottom to start (max 6 layers).';
@@ -308,7 +321,7 @@ function init() {
       statusEl.textContent = `${n}/6 layers — finish with Top.`;
     }
   }
-  refreshStatus();
+  refreshHud();
 
   const slingshot = new SlingshotController({
     camera,
@@ -318,7 +331,8 @@ function init() {
     stackView,
     stackAnchor,
     customerManager,
-    onSettled: refreshStatus,
+    gameSession,
+    onSettled: refreshHud,
   });
 
   function punchButton(el) {
@@ -335,44 +349,44 @@ function init() {
 
   stage.querySelectorAll('[data-ingredient]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (slingshot.isBusy()) return;
+      if (!gameSession.canPlay() || slingshot.isBusy()) return;
       const type = btn.getAttribute('data-ingredient');
       const result = burger.addIngredient(type);
       if (result.ok) {
         punchButton(btn);
         stackView.rebuildFromStack(burger.getStack(), { animateLast: true });
       }
-      refreshStatus();
+      refreshHud();
     });
   });
 
   const trashBtn = document.getElementById('burger-trash');
   trashBtn?.addEventListener('click', () => {
-    if (slingshot.isBusy()) return;
+    if (!gameSession.canPlay() || slingshot.isBusy()) return;
     punchButton(trashBtn);
+    gameSession.resetCombo();
     burger.reset();
     stackView.clearFeedbacks();
     stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
-    refreshStatus();
+    refreshHud();
   });
 
   document.getElementById('serve-btn')?.addEventListener('click', () => {
-    if (slingshot.isBusy()) return;
+    if (!gameSession.canPlay() || slingshot.isBusy()) return;
     if (!burger.isComplete()) {
-      refreshStatus();
+      refreshHud();
       return;
     }
-    const reward = customerManager.tryServe(burger.getStack());
-    if (reward === null) {
+    const served = customerManager.tryServe(burger.getStack());
+    if (served === null) {
       if (statusEl) statusEl.textContent = 'No customer wants that order — check stacks above them.';
       return;
     }
-    totalCoins += reward;
-    refreshCoins();
+    gameSession.applyCorrectDelivery(served.baseReward, 0);
     burger.reset();
     stackView.clearFeedbacks();
     stackView.rebuildFromStack(burger.getStack(), { animateLast: false });
-    refreshStatus();
+    refreshHud();
   });
 
   /**
@@ -396,6 +410,12 @@ function init() {
   function tick() {
     requestAnimationFrame(tick);
     const dt = clock.getDelta();
+    const wasLive = !gameSession.gameOver;
+    gameSession.tick(dt);
+    if (wasLive && gameSession.gameOver && statusEl) {
+      statusEl.textContent = `Time's up! Final: ${gameSession.totalCoins} coins.`;
+    }
+    refreshClockAndEconomy();
     stackView.update(dt);
     customerManager.update(dt);
     slingshot.update(dt);

@@ -65,6 +65,13 @@ export class CustomerManager {
     this.entries.splice(index, 1);
   }
 
+  /** After a delivery or random leave, refill one slot immediately if below cap. */
+  spawnOneIfSpace() {
+    if (this.entries.length < CUSTOMER_MAX_ACTIVE) {
+      this.spawnOne();
+    }
+  }
+
   /**
    * @param {number} dt
    */
@@ -86,11 +93,6 @@ export class CustomerManager {
   }
 
   /**
-   * First matching customer wins (stable order: slot order in array).
-   * @param {string[]} playerStack
-   * @returns {number | null} coins awarded, or null if no match
-   */
-  /**
    * @returns {{ center: THREE.Vector3, radius: number, index: number }[]}
    */
   getWorldColliders() {
@@ -108,6 +110,11 @@ export class CustomerManager {
     if (e) e.view.playHitFlash();
   }
 
+  /**
+   * Exact match required; left-to-right slot priority.
+   * @param {string[]} playerStack
+   * @returns {{ baseReward: number } | null}
+   */
   tryServe(playerStack) {
     const order = this.entries
       .map((e, i) => ({ i, slot: e.customer.slotIndex }))
@@ -115,9 +122,10 @@ export class CustomerManager {
     for (const { i } of order) {
       const { customer } = this.entries[i];
       if (customer.orderMatches(playerStack)) {
-        const coins = customer.getCoinReward();
+        const baseReward = customer.getCoinReward();
         this.removeAt(i);
-        return coins;
+        this.spawnOneIfSpace();
+        return { baseReward };
       }
     }
     return null;
